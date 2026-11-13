@@ -916,7 +916,14 @@ def normalize_video_spec(v, idx=0, owner=None):
                str(item['owner_username']).casefold() != str(owner).casefold()):
             raise ValueError(f'Video {idx}: Library video belongs to another user')
         if item.get('status')!='ready': raise ValueError(f'Video {idx}: Library video is not ready')
-        return {'kind':'library','library_id':lid,'name':item.get('name',''),'trim_enabled':False,'start_min':0,'start_sec':0,'end_min':None,'end_sec':None}
+        result={'kind':'library','library_id':lid,'name':item.get('name',''),'trim_enabled':False,'start_min':0,'start_sec':0,'end_min':None,'end_sec':None}
+        # Video 1 is fixed and untrimmed. Uploaded PC files selected for
+        # Video 2+ use the exact same validated trim window as URL sources.
+        if idx>1:
+            validated=normalize_url_spec({**v,'url':'https://pc-video.invalid/clip.mp4'},idx)
+            result.update({key:validated[key] for key in
+                           ('trim_enabled','start_min','start_sec','end_min','end_sec')})
+        return result
     return normalize_url_spec(v,idx)
 
 def probe(path):
@@ -1384,7 +1391,12 @@ def youtube_title(url):
     return lines[-1]
 
 def source_display_filename(spec):
-    if spec.get('kind')!='url': raise ValueError('Auto filename requires Video 2 to be a URL source')
+    if spec.get('kind')=='library':
+        label=spec.get('name') or 'Video 2'
+        base=safe_component(label)
+        stem=Path(base).stem if Path(base).suffix else base
+        return safe_component(stem)+'.mp4'
+    if spec.get('kind')!='url': raise ValueError('Auto filename requires a URL or saved PC video')
     url=spec.get('url','')
     if looks_youtube(url): label=youtube_title(url)
     elif looks_drive(url):
@@ -1666,7 +1678,7 @@ def _add_job_with_library_lock(payload,owner=''):
     if not isinstance(videos,list) or len(videos)<2 or len(videos)>MAX_VIDEOS: raise ValueError(f'Use 2 to {MAX_VIDEOS} videos')
     videos=[normalize_video_spec(x,i,owner=owner) for i,x in enumerate(videos,1)]
     if videos[0].get('kind')!='library': raise ValueError('Video 1 must be selected from Library')
-    if any(v.get('kind')!='url' for v in videos[1:]): raise ValueError('Video 2 and later videos must use URLs')
+    if any(v.get('kind') not in ('url','library') for v in videos[1:]): raise ValueError('Video 2 and later videos must use URLs or saved PC videos')
     aspect=payload.get('aspect','9:16'); quality=payload.get('quality','1080p')
     if (aspect,quality) not in RES_MAP: raise ValueError('Invalid resolution selection')
     fit='fit' if payload.get('fit_mode')=='fit' else 'crop'; folder=resolve_owner_folder(owner,payload.get('folder',''))
