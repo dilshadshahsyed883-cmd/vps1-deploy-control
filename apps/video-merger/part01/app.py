@@ -53,6 +53,10 @@ FOLDER_CACHE = {'ts': 0.0, 'items': []}
 FOLDER_CACHE_LOCK = threading.Lock()
 PROXY_LOCK = threading.RLock()
 LIBRARY_LOCK = threading.RLock()
+PC_UPLOAD_LOCK = threading.RLock()
+PC_UPLOAD_DIR = WORK / 'pc_library_uploads'
+PC_UPLOAD_CHUNK_MAX = 8 * 1024 * 1024
+PC_UPLOAD_TTL_SECONDS = 24 * 3600
 
 RES_MAP = {
     ('16:9','720p'):(1280,720), ('16:9','1080p'):(1920,1080),
@@ -1057,13 +1061,147 @@ def sync_library_drive(item_id):
             progress=100,message='Ready on VPS · Google Drive copy failed')
 
 
-def process_library_import(item_id, source_url, trim_spec, replacing=False, upload_to_drive=False):
+
+def _pc_upload_paths(upload_id):
+    if not isinstance(upload_id,str) or not re.fullmatch(r'[a-f0-9]{32}',upload_id):
+        raise ValueError('Invalid PC upload ID')
+    return PC_UPLOAD_DIR / (upload_id+'.json'), PC_UPLOAD_DIR / (upload_id+'.part')
+
+
+def _pc_upload_session(owner,upload_id):
+    meta_path,part_path=_pc_upload_paths(upload_id)
+    if meta_path.is_symlink() or part_path.is_symlink():
+        raise ValueError('Unsafe PC upload path')
+    if not meta_path.is_file() or not part_path.is_file():
+        raise ValueError('PC upload expired or not found. Choose the file again.')
+    try:
+        session=json.loads(meta_path.read_text(encoding='utf-8'))
+    except (ValueError,OSError):
+        raise ValueError('PC upload metadata is invalid') from None
+    if not owner or session.get('owner','').casefold()!=owner.casefold():
+        raise ValueError('PC upload belongs to another account')
+    if int(session.get('size',0))<=0 or int(session['size'])>MAX_SOURCE_BYTES:
+        raise ValueError('Invalid PC upload size')
+    return session,meta_path,part_path
+
+
+def _cleanup_old_pc_uploads():
+    """Delete only aged, uncommitted upload staging files; never Library assets."""
+    PC_UPLOAD_DIR.mkdir(parents=True,exist_ok=True)
+    cutoff=time.time()-PC_UPLOAD_TTL_SECONDS
+    for meta in PC_UPLOAD_DIR.glob('*.json'):
+        if meta.is_symlink() or not re.fullmatch(r'[a-f0-9]{32}\.json',meta.name):
+            continue
+        try:
+            if meta.stat().st_mtime>=cutoff:
+                continue
+            _,part=_pc_upload_paths(meta.stem)
+            if not part.is_symlink():
+                part.unlink(missing_ok=True)
+            meta.unlink(missing_ok=True)
+        except OSError:
+            continue
+
+
+def start_library_pc_upload(owner,filename,size):
+    if not owner:
+        raise ValueError('Authenticated account required')
+    if not isinstance(size,int) or isinstance(size,bool) or size<=0 or size>MAX_SOURCE_BYTES:
+        raise ValueError('PC video must be between 1 byte and 12 GiB')
+    filename=str(filename or '').replace('\\','/').split('/')[-1].strip()[:180]
+    if not filename or Path(filename).suffix.lower() not in ('.mp4','.mov','.mkv','.webm','.avi','.m4v','.mpeg','.mpg','.ts'):
+        raise ValueError('Choose a supported video file (MP4, MOV, MKV, WEBM, AVI, M4V, MPEG or TS)')
+    with PC_UPLOAD_LOCK:
+        _cleanup_old_pc_uploads()
+        pending=0
+        for meta in PC_UPLOAD_DIR.glob('*.json'):
+            try:
+                obj=json.loads(meta.read_text(encoding='utf-8'))
+                pending+=int(str(obj.get('owner','')).casefold()==owner.casefold())
+            except (ValueError,OSError):
+                pass
+        if pending>=3:
+            raise ValueError('Finish or cancel an existing PC upload first (limit: 3)')
+        if shutil.disk_usage(PC_UPLOAD_DIR).free < size+MIN_FREE_BYTES:
+            raise ValueError('Insufficient VPS disk space for PC video and operational reserve')
+        upload_id=uuid.uuid4().hex
+        meta,part=_pc_upload_paths(upload_id)
+        with part.open('xb') as f:
+            os.chmod(part,0o600)
+        try:
+            with meta.open('x',encoding='utf-8') as f:
+                json.dump({'owner':owner,'filename':filename,'size':size},f)
+            os.chmod(meta,0o600)
+        except Exception:
+            part.unlink(missing_ok=True)
+            raise
+        return upload_id
+
+
+def append_library_pc_chunk(owner,upload_id,offset,n,stream):
+    if not isinstance(offset,int) or offset<0 or not isinstance(n,int) or n<=0 or n>PC_UPLOAD_CHUNK_MAX:
+        raise ValueError('Invalid PC upload chunk')
+    with PC_UPLOAD_LOCK:
+        session,meta,part=_pc_upload_session(owner,upload_id)
+        current=part.stat().st_size
+        if current!=offset:
+            raise ValueError(f'PC upload offset mismatch; received {current} bytes')
+        if current+n>session['size']:
+            raise ValueError('PC upload exceeds declared file size')
+        if shutil.disk_usage(PC_UPLOAD_DIR).free < n+MIN_FREE_BYTES:
+            raise ValueError('Insufficient VPS disk space for PC upload chunk')
+        with part.open('ab') as out:
+            remaining=n
+            while remaining:
+                buf=stream.read(min(1024*1024,remaining))
+                if not buf:
+                    raise ValueError('PC upload chunk was interrupted')
+                out.write(buf)
+                remaining-=len(buf)
+        os.utime(meta,None)
+        return current+n
+
+
+def cancel_library_pc_upload(owner,upload_id):
+    with PC_UPLOAD_LOCK:
+        _,meta,part=_pc_upload_session(owner,upload_id)
+        part.unlink(missing_ok=True)
+        meta.unlink(missing_ok=True)
+
+
+def finish_library_pc_upload(owner,upload_id,payload):
+    with PC_UPLOAD_LOCK:
+        session,meta,part=_pc_upload_session(owner,upload_id)
+        if part.stat().st_size!=session['size']:
+            raise ValueError('PC upload is incomplete')
+        # Move to an internal, one-use path. The browser cannot select local paths.
+        local=WORK / ('pc_library_'+upload_id+'.bin')
+        if local.exists() or local.is_symlink():
+            raise ValueError('PC upload destination already exists')
+        os.replace(part,local)
+        meta.unlink(missing_ok=True)
+    try:
+        return create_library_item(payload,replace_id=str(payload.get('replace_id') or ''),
+                                   owner=owner,local_source=local,local_name=session['filename'])
+    except Exception:
+        local.unlink(missing_ok=True)
+        raise
+
+
+def process_library_import(item_id, source_url, trim_spec, replacing=False, upload_to_drive=False, local_source=None):
     ws=WORK/f'library_{item_id}_{uuid.uuid4().hex[:6]}'
     ws.mkdir(parents=True,exist_ok=True)
     local_committed=False
     try:
         def cb(progress,msg): update_library_item(item_id,status='importing',progress=min(70,max(2,progress)),message=msg,error='')
-        raw=ws/'source.bin'; source_to_file(source_url,raw,None,1,status_cb=cb)
+        raw=ws/'source.bin'
+        if local_source is not None:
+            if local_source.is_symlink() or not local_source.is_file():
+                raise RuntimeError('PC video upload is unavailable')
+            os.replace(local_source,raw)
+            cb(65,'PC video received · preparing Library copy')
+        else:
+            source_to_file(source_url,raw,None,1,status_cb=cb)
         info=probe(raw); duration=media_duration(info); start,end,selected=trim_window(trim_spec,duration,1)
         update_library_item(item_id,status='importing',progress=72,message='Saving final video on VPS')
         final=ws/'library.mp4'; transcode_library(raw,final,start,end)
@@ -1105,33 +1243,45 @@ def process_library_import(item_id, source_url, trim_spec, replacing=False, uplo
         else:
             update_library_item(item_id,status='failed',progress=100,message='Import failed',error=msg)
     finally:
+        if local_source is not None:
+            local_source.unlink(missing_ok=True)
         shutil.rmtree(ws,ignore_errors=True)
 
 
-def create_library_item(payload, replace_id='', owner=''):
+def create_library_item(payload, replace_id='', owner='', local_source=None, local_name=''):
     with LIBRARY_LOCK:
-        return _create_library_item_locked(payload,replace_id,owner)
+        return _create_library_item_locked(payload,replace_id,owner,local_source,local_name)
 
 
-def _create_library_item_locked(payload, replace_id='', owner=''):
+def _create_library_item_locked(payload, replace_id='', owner='', local_source=None, local_name=''):
     if not str(owner).strip():
         raise ValueError('Authenticated account required')
     replace_id=(replace_id or '').strip()
-    source=validate_url(payload.get('url',''))
+    if local_source is not None:
+        source='PC upload: '+local_name[:180]
+        trim_url='https://pc-upload.invalid/video'
+    else:
+        source=validate_url(payload.get('url',''))
+        trim_url=source
     requested=payload.get('upload_to_drive',False) is True
-    trim=normalize_url_spec({'url':source,'trim_enabled':bool(payload.get('trim_enabled',False)),
+    trim=normalize_url_spec({'url':trim_url,'trim_enabled':bool(payload.get('trim_enabled',False)),
         'start_min':payload.get('start_min'),'start_sec':payload.get('start_sec'),
         'end_min':payload.get('end_min'),'end_sec':payload.get('end_sec')},1)
+    if local_source is not None:
+        trim['url']=''; trim['kind']='pc'
     if replace_id:
         item=get_library_item(replace_id)
         if not item or str(item.get('owner_username') or '').casefold()!=owner.casefold():
             raise KeyError('Library video not found')
-        if item['status']!='ready' or item.get('drive_status')=='uploading':
+        prior_ready=item['status']=='ready'
+        if not prior_ready and not (local_source is not None and item['status']=='failed' and item.get('source_url','').startswith('PC upload:')):
+            raise ValueError('Wait for the Library operation to finish')
+        if item.get('drive_status')=='uploading':
             raise ValueError('Wait for the Library operation to finish')
         if library_in_use(replace_id):
             raise ValueError('This Library video is currently used by a waiting or active merge')
         update_library_item(replace_id,status='importing',progress=1,message='Replacing video',error='')
-        threading.Thread(target=process_library_import,args=(replace_id,source,trim,True,requested),daemon=True).start()
+        threading.Thread(target=process_library_import,args=(replace_id,source,trim,prior_ready,requested,local_source),daemon=True).start()
         return replace_id
     name=safe_library_name(payload.get('name',''))
     if library_name_exists(name,owner=owner): raise ValueError('A Library video with this name already exists')
@@ -1142,7 +1292,7 @@ def _create_library_item_locked(payload, replace_id='', owner=''):
                   (item_id,name,f'{item_id}.mp4','','importing',1,'Queued for import',
                    source,json.dumps(trim),now,now,owner,int(requested),
                    'pending' if requested else 'not_requested'))
-    threading.Thread(target=process_library_import,args=(item_id,source,trim,False,requested),daemon=True).start()
+    threading.Thread(target=process_library_import,args=(item_id,source,trim,False,requested,local_source),daemon=True).start()
     return item_id
 
 
@@ -1153,6 +1303,8 @@ def retry_library_item(item_id):
         if not item: raise KeyError('Library video not found')
         if item['status']!='failed': raise ValueError('Only failed Library videos can be retried')
         if library_in_use(item_id): raise ValueError('Library video is used by an unfinished merge')
+        if str(item.get('source_url') or '').startswith('PC upload:'):
+            raise ValueError('Select and upload the PC file again; the original is not kept after processing')
         source=validate_url(item['source_url'])
         try: trim=json.loads(item.get('trim_json') or '{}')
         except (ValueError,TypeError): raise ValueError('Saved trim settings are invalid') from None
@@ -1742,8 +1894,23 @@ class Handler(BaseHTTPRequestHandler):
         try:
             # Every mutation and source lookup must have verified Scene identity.
             # /health remains the only intentionally public operational probe.
-            self.principal()
+            owner=self.principal()
+            if p==PREFIX+'/api/library/pc/chunk':
+                length=int(self.headers.get('Content-Length','0') or 0)
+                offset=int(self.headers.get('X-Upload-Offset','-1') or -1)
+                upload_id=self.headers.get('X-Upload-ID','')
+                new_offset=append_library_pc_chunk(owner,upload_id,offset,length,self.rfile)
+                return self.send_json(200,{'ok':True,'offset':new_offset})
             payload=self.read_json()
+            if p==PREFIX+'/api/library/pc/start':
+                uid=start_library_pc_upload(owner,payload.get('filename',''),payload.get('size'))
+                return self.send_json(201,{'ok':True,'upload_id':uid,'chunk_size':PC_UPLOAD_CHUNK_MAX})
+            if p==PREFIX+'/api/library/pc/finish':
+                lid=finish_library_pc_upload(owner,payload.get('upload_id',''),payload)
+                return self.send_json(202,{'ok':True,'id':lid})
+            if p==PREFIX+'/api/library/pc/cancel':
+                cancel_library_pc_upload(owner,payload.get('upload_id',''))
+                return self.send_json(200,{'ok':True})
             if p==PREFIX+'/api/jobs':
                 jid,filename=add_job(payload,self.principal()); return self.send_json(201,{'ok':True,'id':jid,'filename':filename})
             if p==PREFIX+'/api/source-name':
