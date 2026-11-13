@@ -337,7 +337,7 @@ function selectLibraryPcFile(){
 function clearLibraryPcFile(){
  libPcFile.value='';libUrl.value='';libUrl.readOnly=false;
  libPcInfo.textContent='Or paste a URL above';libPcClear.style.display='none';
- libPcProgress.style.display='none';mergerEligibility();
+ libPcProgress.style.display='none';if(typeof mergerEligibility==='function')mergerEligibility();
 }
 function reuploadLibrary(id){replaceLibrary(id);libPcFile.click()}
 function libraryPcProgress(offset,total){
