@@ -62,11 +62,11 @@ class PcLibraryUploadTests(unittest.TestCase):
         self.assertEqual(item["status"], "importing")
         self.assertTrue(item["source_url"].startswith("PC upload:"))
         self.assertTrue(item["trim_json"])
-        with patch.object(app, "source_to_file", side_effect=AssertionError("URL fetched for PC file")), \\
+        with patch.object(app, "source_to_file", side_effect=AssertionError("URL fetched for PC file")), \
              patch.object(app, "probe", return_value={
-                 "format": {"duration": "5.0"}, "streams": [{"codec_type": "video"}]}), \\
+                 "format": {"duration": "5.0"}, "streams": [{"codec_type": "video"}]}), \
              patch.object(app, "transcode_library",
-                          side_effect=lambda src, dst, *trim: dst.write_bytes(b"final-mp4")), \\
+                          side_effect=lambda src, dst, *trim: dst.write_bytes(b"final-mp4")), \
              patch.object(app, "verify_library_media", return_value=2.0):
             app.process_library_import(*args)
         ready = app.get_library_item(library_id)
