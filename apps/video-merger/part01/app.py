@@ -1840,7 +1840,7 @@ def delete_job(jid, owner='', admin=False):
 def cancel_job(jid, owner='', admin=False):
     """Cancel only a still-waiting job; preserve its history and all source/output files."""
     with DB_LOCK, db() as c:
-        j=c.execute('SELECT id,status,owner_username FROM jobs WHERE id=?',(jid,)).fetchone()
+        j=c.execute('SELECT id,status,owner_username,videos_json FROM jobs WHERE id=?',(jid,)).fetchone()
         if not j: raise KeyError('Job not found')
         if not admin and (not owner or not j['owner_username'] or str(j['owner_username']).casefold()!=str(owner).casefold()):
             raise ValueError('This job does not belong to the current account')
