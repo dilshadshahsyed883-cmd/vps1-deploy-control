@@ -190,6 +190,16 @@ def service_unit(app, revision):
     python = BASE / 'venvs' / app / revision / 'bin/python'
     command = (f'{python} {spec["script"]}' if 'script' in spec else
                f'{python} -m uvicorn {spec["module"]} --host 127.0.0.1 --port {spec["port"]}')
+    # Copyright Uploader runs its cleanup worker inside this service. With
+    # ProtectSystem=strict, its own writable data root is insufficient: the
+    # verified-only cleanup also removes owner handoffs and matching retained
+    # Video Merger output. Grant only those two subfolders, not the merger DB,
+    # Drive files, or the entire Video Merger state root.
+    merger_root = DATA / 'video-merger' / 'video-merger'
+    copyright_cleanup_rw = (
+        f' {merger_root / "copyright_handoff"} {merger_root / "verified_outputs"}'
+        if app == 'copyright-uploader' else ''
+    )
     return f'''[Unit]
 Description=VPS1 production {app}
 After=network-online.target
@@ -212,7 +222,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths={DATA}/{runtime_name(app)} -/home/ubuntu/.config/masterctl
+ReadWritePaths={DATA}/{runtime_name(app)} -/home/ubuntu/.config/masterctl{copyright_cleanup_rw}
 
 [Install]
 WantedBy=multi-user.target
