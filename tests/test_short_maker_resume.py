@@ -98,7 +98,7 @@ class ShortMakerResumeTests(unittest.TestCase):
         self.assertIn('with upload_session_lock(job_id):', app)
         self.assertIn('reserve_short_output_names(cfg["short_vps_folder"]', app)
         for fragment in ("indexedDB.open(", "navigator.locks", "SHORT_CHUNK_SIZE",
-                         "file.slice(offset", "meta.job_id", "shortDBSave(meta,blobs)",
+                         "file.slice(offset", "meta.job_id", "shortDBStageUpload(meta,blobs)",
                          "shortDBRead('meta','active')", "uploaded_bytes", "'/finalize'",
                          "pollShortJob", "crypto.randomUUID()", "withShortUploadLock(",
                          "renderProgressBar.style.width", "client_request_id:meta.client_request_id"):
