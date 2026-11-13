@@ -63,7 +63,7 @@ def apply_merge_pc_overlay(live,source,baseline):
                 "unexpected existing upload helper")
         anchor='function specFromItem(item,i){'
         require(live.count(anchor)==1,"upload insertion anchor missing")
-        live=live.replace(anchor,helpers+anchor,1)
+        live=live.replace(anchor,'\n'+helpers+anchor,1)
     require(live.count('function selectMergePcFile(input)')==1 and
             live.count('class="vm-merge-pc-file"')==1 and
             live.count('every(mergePcReady)')==1,
