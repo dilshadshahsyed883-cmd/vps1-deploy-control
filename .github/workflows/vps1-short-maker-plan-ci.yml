@@ -26,6 +26,7 @@ on:
       - 'tests/test_short_maker_profiles_integration.py'
       - 'tests/test_short_maker_profiles_store.py'
       - 'tests/test_short_maker_profile_media.py'
+      - 'tests/test_short_maker_multi_submit.py'
       - 'tests/test_short_maker_plan_ui.py'
       - 'tests/test_short_maker_ready_video_uploads.py'
       - 'tests/test_short_maker_verified_inventory.py'
@@ -81,8 +82,10 @@ jobs:
           python -m unittest discover -s tests -p 'test_short_maker_verified_inventory.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_handover.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_resume.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_multi_submit.py' -v
       - name: Check browser resumable uploader JavaScript syntax
         run: |
+          node --check apps/short-maker/part01/resumable_client.js
           node --check apps/short-maker/part01/ready_video_client.js
           node --check apps/short-maker/part01/short_profile_client.js
       - name: Auto Script remains offline
