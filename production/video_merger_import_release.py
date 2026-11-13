@@ -277,7 +277,8 @@ LIBRARY_V1_REVIEWED_NODES = frozenset({
     'process_library_import', 'create_library_item', '_create_library_item_locked',
     'retry_library_item', 'retry_library_drive', 'rename_library_item',
     'delete_library_item', 'library_to_file', 'add_job',
-    '_add_job_with_library_lock', 'Handler',
+    '_add_job_with_library_lock', 'normalize_video_spec',
+    'source_display_filename', 'Handler',
 })
 
 
