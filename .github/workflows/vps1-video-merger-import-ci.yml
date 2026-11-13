@@ -12,6 +12,9 @@ on:
       - 'tests/test_video_merger_frozen_library.py'
       - 'tests/test_video_merger_pc_upload.py'
       - 'tests/test_video_merger_merge_pc_upload.py'
+      - 'tests/test_video_merger_merge_pc_release.py'
+      - 'production/video_merger_merge_pc_release.py'
+      - 'production/video_merger_merge_pc_pre_20261113.html'
       - 'tests/test_video_merger_library_release.py'
       - 'tests/test_video_merger_library_smoke_bounds.py'
       - 'production/video_merger_library_release.py'
@@ -27,5 +30,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m unittest tests.test_video_merger_merge_pc_upload tests.test_video_merger_pc_upload tests.test_video_merger_library_smoke_bounds tests.test_video_merger_library_release tests.test_video_merger_frozen_library tests.test_video_merger_imports tests.test_video_merger_import_release tests.test_video_merger_queue_layout tests.test_video_merger_owner_handover tests.test_vps_owner_folder_handoff tests.test_video_merger_drive_filename_fallback -v
-      - run: python -m py_compile tests/test_video_merger_merge_pc_upload.py tests/test_video_merger_pc_upload.py apps/video-merger/part01/app.py production/video_merger_import_release.py production/video_merger_import_smoke.py
+      - run: python -m unittest tests.test_video_merger_merge_pc_release tests.test_video_merger_merge_pc_upload tests.test_video_merger_pc_upload tests.test_video_merger_library_smoke_bounds tests.test_video_merger_library_release tests.test_video_merger_frozen_library tests.test_video_merger_imports tests.test_video_merger_import_release tests.test_video_merger_queue_layout tests.test_video_merger_owner_handover tests.test_vps_owner_folder_handoff tests.test_video_merger_drive_filename_fallback -v
+      - run: python -m py_compile production/video_merger_merge_pc_release.py tests/test_video_merger_merge_pc_release.py tests/test_video_merger_merge_pc_upload.py tests/test_video_merger_pc_upload.py apps/video-merger/part01/app.py production/video_merger_import_release.py production/video_merger_import_smoke.py
