@@ -125,6 +125,42 @@ function renderProxy(){old}
                 "return 'same'","return 'changed'",1))
             self.assertFalse(release.reviewed_library_only_change(previous,candidate))
 
+    def test_pc_upload_library_parity_rejects_downloader_or_global_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            previous=Path(directory)/'old.py'
+            candidate=Path(directory)/'new.py'
+            prior="def source_to_file(): return 'same'\\n" + \
+                  "def test_proxy_profile(): return 'same'\\n"
+            previous.write_text(prior)
+            pc_globals="".join(f"{name} = {expr}\\n" for name,expr in
+                               release.PC_LIBRARY_GLOBALS_EXPECTED.items())
+            pc_nodes="".join(f"def {name}(): return 'pc'\\n"
+                             for name in sorted(release.PC_LIBRARY_NODES))
+            candidate.write_text(prior+pc_globals+pc_nodes)
+            self.assertTrue(release.reviewed_library_only_change(previous,candidate))
+            candidate.write_text((prior+pc_globals+pc_nodes).replace(
+                "return 'same'","return 'changed'",1))
+            self.assertFalse(release.reviewed_library_only_change(previous,candidate))
+            candidate.write_text(prior+pc_globals.replace(
+                '8 * 1024 * 1024','1024 * 1024')+pc_nodes)
+            self.assertFalse(release.reviewed_library_only_change(previous,candidate))
+
+    def test_preexisting_proxy_auth_must_be_specific_and_already_enabled(self):
+        from production.video_merger_import_smoke import strict_preexisting_proxy_auth_failure
+        actual={'proxy_enabled':True,'candidate_saved_proxy':False,
+                'proxy_test':'FAIL: Command failed (22): /usr/bin/curl',
+                'youtube':'FAIL: PROXY_AUTH_FAILED: Selected YouTube proxy rejected authentication.'}
+        self.assertTrue(strict_preexisting_proxy_auth_failure(actual))
+        for change in (
+            {'proxy_enabled':False},
+            {'candidate_saved_proxy':True},
+            {'proxy_test':'FAIL: Connection timed out'},
+            {'youtube':'FAIL: HTTPS unavailable'},
+            {'youtube':'PASS'},
+        ):
+            with self.subTest(change=change):
+                self.assertFalse(strict_preexisting_proxy_auth_failure(actual | change))
+
     def test_retry_ui_guard_preserves_unrelated_active_markup(self):
         canonical=(Path(__file__).resolve().parents[1]/'apps/video-merger/part01/templates/index.html').read_text()
         old='''<button class="btn secondary mini" onclick="renameLibrary('${x.id}')"''' + '\\nfunction renderProxy(){' + '\\n<style>/* keep parallel UI */</style>'
