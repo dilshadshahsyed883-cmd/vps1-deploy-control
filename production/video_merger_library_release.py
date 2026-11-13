@@ -29,7 +29,7 @@ def one_line(page, prefix):
     return found[0]
 
 
-def frozen_library_overlay(live, source, baseline):
+def frozen_library_overlay(live, source, baseline, previous=None):
     """Apply the exact reviewed Library diff to current live HTML only."""
     require_exact(source.count('id="libraryUploadDrive" type="checkbox"') == 1
                   and source.count('id="libraryUploadDrive"') == 1,
@@ -51,8 +51,14 @@ def frozen_library_overlay(live, source, baseline):
         require_exact(old != new, "expected change absent")
         if live.count(new) == 1:
             continue
-        require_exact(live.count(old) == 1, "live Library panel drift")
-        live = live.replace(old, new, 1)
+        candidates=[old]
+        if previous is not None:
+            approved=block(previous,start,end)
+            if approved not in candidates:
+                candidates.append(approved)
+        matches=[v for v in candidates if live.count(v)==1]
+        require_exact(len(matches)==1, "live Library panel drift")
+        live=live.replace(matches[0],new,1)
 
     for prefix in (
         "function resetLibraryForm(){",
@@ -65,8 +71,14 @@ def frozen_library_overlay(live, source, baseline):
         require_exact(old != new, "expected callback change absent")
         if live.count(new) == 1:
             continue
-        require_exact(live.count(old) == 1, "live Library callback drift")
-        live = live.replace(old, new, 1)
+        candidates=[old]
+        if previous is not None:
+            approved=one_line(previous,prefix)
+            if approved not in candidates:
+                candidates.append(approved)
+        matches=[v for v in candidates if live.count(v)==1]
+        require_exact(len(matches)==1, "live Library callback drift")
+        live=live.replace(matches[0],new,1)
 
     # Retry Import is a Library action. Legacy live releases may not
     # have its callback yet; preserve the canonical handler or add it once.
