@@ -395,6 +395,13 @@ def install(revision):
         patched=frozen_library_overlay(
             patched,source_html,baseline_path.read_text(encoding='utf-8'),
             previous=previous_path.read_text(encoding='utf-8'))
+    if 'function selectMergePcFile(input)' in source_html:
+        from production.video_merger_merge_pc_release import apply_merge_pc_overlay
+        merge_baseline_path=REPO/'production/video_merger_merge_pre_pc_20261113.html'
+        require(merge_baseline_path.is_file() and not merge_baseline_path.is_symlink(),
+                'Reviewed Video 2 Merge input baseline missing')
+        patched=apply_merge_pc_overlay(
+            patched,source_html,merge_baseline_path.read_text(encoding='utf-8'))
     live_template.write_text(patched,encoding='utf-8')
     manifest=json.loads((target/'_production_manifest.json').read_text())
     require(manifest.get('app')==app,'wrong manifest owner')
@@ -499,6 +506,11 @@ def install(revision):
                     and b'id="libraryPreviewDialog"' in page
                     and b'function viewLibrary(id)' in page,
                     'authenticated frozen Library UI readback failed')
+        if 'function selectMergePcFile(input)' in source_html:
+            require(b'function selectMergePcFile(input)' in page and
+                    b'vm-merge-pc-file' in page and
+                    b'every(mergePcReady)' in page,
+                    'Authenticated Video 2 PC upload UI readback failed')
         if 'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in source_html:
             require(b'VIDEO_MERGER_TWO_COLUMN_QUEUE_V2' in page and
                     b'id="tab-queue"' in page and b'class="vm-merge-layout"' in page,
