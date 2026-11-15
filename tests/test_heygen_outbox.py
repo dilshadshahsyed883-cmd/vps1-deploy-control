@@ -80,6 +80,19 @@ class OutboxTest(unittest.TestCase):
             self.assertIsNotNone(con.execute(
                 "SELECT 1 FROM jobs WHERE owner=? AND id=?", ("alice", job_id)).fetchone())
 
+    def test_worker_ignoring_request_id_fails_closed(self):
+        job_id = self.queued()
+        self.transport = httpx.MockTransport(lambda request:
+            httpx.Response(200, json={"supports_idempotent_submit": True,
+                                       "entrypoint_found": True, "models_ready": True})
+            if request.url.path.endswith("/engine") else
+            httpx.Response(202, json={"id": "b" * 32}))
+        self.box.dispatch("alice", job_id)
+        self.assertEqual(self.box.snapshot("alice")[job_id]["state"], "failed")
+        # No further automatic dispatch: manual retry is necessary.
+        self.box.dispatch("alice", job_id)
+        self.assertEqual(self.box.snapshot("alice")[job_id]["state"], "failed")
+
     def test_old_worker_never_receives_auto_retry(self):
         job_id = self.queued()
         self.has_capability = False
