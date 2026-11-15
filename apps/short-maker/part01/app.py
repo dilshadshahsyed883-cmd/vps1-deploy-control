@@ -1818,7 +1818,7 @@ async function loadOwnerFolderNames(){
       if(!confirm('WARNING: Permanently delete '+filenames.length+' selected MP4 file(s) from "'+name+'"? This cannot be undone.'))return;
       deleteSelected.disabled=true;
       try{
-       const response=await fetch('api/vps-folders/'+encodeURIComponent(name)+'/media/delete',{
+       const response=await fetch('api/vps-folders/'+encodeURIComponent(name)+'/media',{
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({filenames,confirm_delete:true})});
        const result=await response.json();
@@ -2089,6 +2089,7 @@ def list_owned_short_folder_media(folder_name: str, request: Request):
     return {"folder": folder_name, "files": files}
 
 
+@app.post("/api/vps-folders/{folder_name}/media")
 @app.post("/api/vps-folders/{folder_name}/media/delete")
 async def delete_owned_short_folder_media(folder_name: str, request: Request):
     """Explicitly confirmed file deletion; no folder-retirement dependency gate."""
