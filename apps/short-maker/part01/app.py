@@ -1134,7 +1134,8 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
 #foldersPanel .queue-table tbody tr:last-child td{border-bottom:0;}
 #foldersPanel .folder-media-list{display:grid;gap:0;max-height:340px;overflow-y:auto;margin-top:10px;}
 #foldersPanel .folder-media-entry{display:flex;align-items:center;gap:10px;min-width:0;padding:8px 4px;border-bottom:1px solid #edf0f5;font-size:13px;}
-#foldersPanel .folder-media-entry input[type=checkbox]{width:18px;height:18px;flex:0 0 auto;}
+#foldersPanel .folder-media-entry input[type=checkbox],#foldersPanel .queue-actions input[type=checkbox]{width:18px;max-width:18px;min-height:18px;height:18px;padding:0;flex:0 0 auto;}
+#foldersPanel .queue-actions label{display:inline-flex;align-items:center;gap:6px;}
 #foldersPanel .folder-media-entry .folder-media-name{flex:1;min-width:0;overflow-wrap:anywhere;}
 #foldersPanel .folder-media-entry .folder-media-size{color:#667085;font-size:12px;white-space:nowrap;}
 @media(max-width:1100px){
