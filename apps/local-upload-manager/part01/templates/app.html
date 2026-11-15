@@ -1558,17 +1558,19 @@
         {% for q in ae.queue %}<tr><td><input type="checkbox" class="lum-ae-queue-select" value="{{ q.id }}"></td><td>{{ q.id }}</td><td><code>{{ q.metadata_video_key or 'Legacy' }}</code></td><td><span class="lum-state s-{{ (q.status or '')|lower }}">{{ q.status }}</span>
           {% if (q.status or '')|upper == 'WAITING_NETWORK' %}
           {% set network_review = (q.recovery_state or '')|upper == 'REVIEW_REQUIRED' %}
-          {% if network_review %}
+          {% if network_review and engine_instance == 'shortstudio' %}
           <small class="lum-ae-review-hint">Review required · use the full-width panel below</small>
           {% else %}
           <div class="lum-ae-network-actions" aria-label="Network recovery for job {{ q.id }}">
             <form method="post" action="{{ base_path }}/actions/auto-v6/job/network-action" data-lum-soft-form>
               <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input type="hidden" name="action" value="retry">
-              <button class="lum-button secondary tiny" type="submit">Retry</button>
+              {% if network_review %}<input name="confirmation" placeholder="NO REMOTE VIDEO" aria-label="Confirm no remote YouTube video exists for job {{ q.id }}" autocomplete="off" required>{% endif %}
+              <button class="lum-button secondary tiny" type="submit">{{ 'Retry after review' if network_review else 'Retry' }}</button>
             </form>
             <form method="post" action="{{ base_path }}/actions/auto-v6/job/network-action" data-lum-soft-form data-confirm="Cancel this WAITING_NETWORK job? Only a proven pre-upload wait can be cancelled. Source media will be retained.">
               <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input type="hidden" name="action" value="cancel">
-              <button class="lum-button danger tiny" type="submit">Cancel</button>
+              {% if network_review %}<input name="confirmation" placeholder="NO REMOTE VIDEO" aria-label="Confirm no remote YouTube video exists for job {{ q.id }}" autocomplete="off" required>{% endif %}
+              <button class="lum-button danger tiny" type="submit">{{ 'Cancel after review' if network_review else 'Cancel' }}</button>
             </form>
           </div>
           {% endif %}
