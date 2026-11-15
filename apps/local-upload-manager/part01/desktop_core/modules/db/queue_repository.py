@@ -1286,7 +1286,7 @@ class QueueRepository(BaseRepository):
                 )
             return len(resolved)
 
-    def resolve_waiting_network_job(self, video_id: int, action: str) -> tuple[bool, str]:
+    def resolve_waiting_network_job(self, video_id: int, action: str, reviewed: bool = False) -> tuple[bool, str]:
         """Retry or cancel an unclaimed pre-media network wait without weakening upload receipts.
 
         WAITING_NETWORK may also mean a live uploader stalled mid-transfer. Such
@@ -1308,14 +1308,21 @@ class QueueRepository(BaseRepository):
                 return False, f"Job is now {row['status']}; refresh Queue before acting."
             if str(row["claim_worker_id"] or "").strip():
                 return False, "An upload worker still owns this job. Wait for release; do not force a second upload."
-            if str(row["recovery_state"] or "").upper() == "REVIEW_REQUIRED":
+            recovery = str(row["recovery_state"] or "").upper()
+            if recovery == "REVIEW_REQUIRED" and not reviewed:
                 return False, "YouTube Studio review is required before a fresh retry or cancellation."
+            if reviewed and recovery != "REVIEW_REQUIRED":
+                return False, "This job is not awaiting reviewed network recovery; refresh Queue."
             remote = str(row["youtube_video_id"] or "").strip() or str(row["youtube_url"] or "").strip()
             resumable = str(row["resumable_uri"] or "").strip()
             media_stage = str(row["media_stage_state"] or "PENDING").upper()
             pipeline_stage = str(row["pipeline_stage"] or "PENDING").upper()
             sent_bytes = int(row["upload_bytes_confirmed"] or 0)
-            if remote or resumable or sent_bytes or media_stage not in {"PENDING"} or pipeline_stage not in {"PENDING", "PREPARE"}:
+            if reviewed:
+                # The reviewer confirmed no remote upload; never discard a known YouTube identity.
+                if remote:
+                    return False, "A remote YouTube video is already recorded; reconcile it before changing this job."
+            elif remote or resumable or sent_bytes or media_stage not in {"PENDING"} or pipeline_stage not in {"PENDING", "PREPARE"}:
                 return False, "Upload may have begun. Check YouTube Studio; protected media-stage jobs cannot be force-retried or deleted."
             channel_id = int(row["channel_db_id"] or 0)
             fingerprint = str(row["upload_fingerprint"] or "").strip()
@@ -1325,23 +1332,40 @@ class QueueRepository(BaseRepository):
                     (channel_id, fingerprint),
                 ).fetchone()
                 state = str(ledger["state"] or "").upper() if ledger else ""
-                if state in {"MEDIA_IN_PROGRESS", "RESUMABLE", "REMOTE_CREATED", "COMPLETED", "AMBIGUOUS"}:
+                if state in {"REMOTE_CREATED", "COMPLETED"}:
+                    return False, "A remote upload is recorded in the permanent ledger; reconcile it first."
+                if not reviewed and state in {"MEDIA_IN_PROGRESS", "RESUMABLE", "AMBIGUOUS"}:
                     return False, "Permanent upload ledger indicates possible remote activity. Review YouTube Studio first."
             if action == "retry":
-                conn.execute(
-                    """UPDATE videos SET status='QUEUED', recovery_state='NONE',
-                        claim_worker_id=NULL, claimed_at=NULL, lease_expires_at=NULL,
-                        error_message='', updated_at=CURRENT_TIMESTAMP
-                        WHERE id=? AND status='WAITING_NETWORK'""",
-                    (int(video_id),),
-                )
+                if reviewed:
+                    conn.execute(
+                        """UPDATE videos SET status='QUEUED', recovery_state='NONE',
+                            progress=0, claim_worker_id=NULL, claimed_at=NULL, lease_expires_at=NULL,
+                            resumable_uri=NULL, resumable_file_size=NULL,
+                            resumable_file_mtime_ns=NULL, upload_bytes_confirmed=0,
+                            media_stage_state='PENDING', pipeline_stage='PENDING',
+                            error_message='Reviewed in YouTube Studio; no remote video exists. Fresh retry authorized.',
+                            updated_at=CURRENT_TIMESTAMP
+                            WHERE id=? AND status='WAITING_NETWORK' AND recovery_state='REVIEW_REQUIRED'""",
+                        (int(video_id),),
+                    )
+                else:
+                    conn.execute(
+                        """UPDATE videos SET status='QUEUED', recovery_state='NONE',
+                            claim_worker_id=NULL, claimed_at=NULL, lease_expires_at=NULL,
+                            error_message='', updated_at=CURRENT_TIMESTAMP
+                            WHERE id=? AND status='WAITING_NETWORK'""",
+                        (int(video_id),),
+                    )
                 if fingerprint:
                     self._set_ledger_state(conn, int(video_id), "RESERVED", last_error="")
                 conn.execute(
                     "INSERT INTO upload_logs(video_id,level,message,progress) VALUES (?, 'INFO', ?, 0)",
-                    (int(video_id), "User requested safe retry of pre-media WAITING_NETWORK job."),
+                    (int(video_id), "User confirmed in YouTube Studio no remote video exists; reviewed WAITING_NETWORK retry authorized."
+                     if reviewed else "User requested safe retry of pre-media WAITING_NETWORK job."),
                 )
-                return True, "Queued for retry. If network/proxy remains unavailable, job will wait again."
+                return True, ("Reviewed network job queued for fresh retry." if reviewed
+                              else "Queued for retry. If network/proxy remains unavailable, job will wait again.")
             # Queue cancellation is distinct from remote deletion: source media
             # and permanent upload records stay untouched.
             if fingerprint:
@@ -1355,7 +1379,7 @@ class QueueRepository(BaseRepository):
             conn.execute("DELETE FROM videos WHERE id=? AND status='WAITING_NETWORK'", (int(video_id),))
             conn.execute(
                 "INSERT INTO upload_logs(video_id,level,message,progress) VALUES (NULL, 'INFO', ?, 0)",
-                (f"Safely cancelled pre-media network-wait queue job #{int(video_id)}; source files retained.",),
+                (f"{'User-reviewed' if reviewed else 'Safely'} cancelled network-wait queue job #{int(video_id)}; source files retained.",),
             )
             return True, "Waiting-network queue job cancelled. Source media and permanent records retained."
 
