@@ -365,6 +365,15 @@ def smoke(app):
                         raise RuntimeError('Voice Studio accepted an unverified Scene session')
                     result['unverified_scene_denied'] = 'PASS_401'
                     downloader = client.get('/tts/api/audio-downloader/status')
+                    if downloader.status_code >= 500:
+                        log.flush()
+                        log.seek(0)
+                        raise RuntimeError(
+                            'Voice downloader smoke returned HTTP '
+                            + str(downloader.status_code) + ': '
+                            + downloader.text[:300] + '\\n'
+                            + log.read()[-5000:]
+                        )
                     downloader.raise_for_status()
                     if not downloader.json().get('ready') or not downloader.json().get('worker'):
                         raise RuntimeError('audio downloader toolchain unavailable')
