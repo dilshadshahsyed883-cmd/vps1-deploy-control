@@ -207,6 +207,7 @@ class WaitingNetworkQueueActions(unittest.TestCase):
         self.assertIn("panes.find(node=>node.querySelector('.lum-ae-queue'))", js)
         self.assertIn("const fresh=queueLivePanel(doc)", js)
         routes = ROUTES.read_text()
+        src = TEMPLATE.read_text()
         self.assertIn('/actions/auto-v6/job/network-action', routes)
         self.assertIn('reviewed=reviewed', routes)
         self.assertIn('str(form.get("confirmation") or "").strip()!="NO REMOTE VIDEO"', routes)
