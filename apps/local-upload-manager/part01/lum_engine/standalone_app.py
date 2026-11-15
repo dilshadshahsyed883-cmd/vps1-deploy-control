@@ -2692,9 +2692,9 @@ def auto_v6_resume_paused(request: Request,csrf_token: str=Form(...)):
             safe=[j for j in jobs if str(j.get("recovery_state") or "").strip().upper() in {"NONE","AUTO_RESUME"}]
             review=[j for j in jobs if str(j.get("recovery_state") or "").strip().upper()=="REVIEW_REQUIRED"]
             unknown=len(jobs)-len(safe)-len(review)
-            detail=(f"{len(review)} require YouTube Studio recovery review; "
+            detail=(f"{len(review)} have incomplete remote upload evidence; "
                     f"{unknown} have unclassified legacy recovery state. "
-                    "Review the paused rows below; do not retry an uncertain remote upload.")
+                    "These uncertain uploads remain parked; stored remote-ID and ledger guards are unchanged.")
             if not safe:
                 return redirect("/app?tab=auto_engine",
                     error=f"No safely resumable paused jobs. {detail}")
