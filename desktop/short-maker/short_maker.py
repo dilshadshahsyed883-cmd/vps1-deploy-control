@@ -206,7 +206,7 @@ def build_command(images: list[str], audio: str | None, output: str, *,
 
 
 def verified_video(file: Path, expected_seconds: float) -> bool:
-    if not file.is_file() or file.stat().st_size < 4096:
+    if not file.is_file() or file.stat().st_size < 512:
         return False
     try:
         result = subprocess.run(
