@@ -26,6 +26,20 @@ _ADMIN_USER_MANAGEMENT = ("POST", "/user-management")
 
 
 def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_enabled: bool = False) -> bool:
+    # HeyGen Studio: allow only exact owner-authenticated and CSRF-protected
+    # configuration, queue and job actions. No blanket candidate write access.
+    if (method, path) in {
+        ("POST", "/api/heygen-studio/config"),
+        ("POST", "/api/heygen-studio/jobs"),
+        ("POST", "/api/heygen-studio/queue/start"),
+        ("POST", "/api/heygen-studio/queue/pause"),
+        ("POST", "/api/heygen-studio/queue/resume"),
+    }:
+        return True
+    if method == "POST" and re.fullmatch(
+        r"/api/heygen-studio/jobs/[0-9a-f]{32}/(?:cancel|retry|delete|save)", path
+    ):
+        return True
     # Cloud Render: scoped admin+CSRF actions and token-authenticated chunk receiver.
     # This does not grant generic editing or modify Auto Script.
     if (method,path) in {
