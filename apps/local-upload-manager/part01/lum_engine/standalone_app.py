@@ -2754,7 +2754,31 @@ async def auto_v6_remove_selected(request: Request):
     ids=_v6_selected_ids(form)
     if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
         try:
-            ids=[int(job["id"]) for job in _short_owned_queue_jobs(request,ids)] if ids else []
+            if str(form.get("confirmation") or "")!="REMOVE SELECTED QUEUE JOBS":
+                return redirect("/app?tab=auto_engine",
+                    error="Deletion not confirmed. Refresh Queue and confirm the removal warning.")
+            if not ids:
+                return redirect("/app?tab=auto_engine",
+                    error="Select one or more Queue jobs before Remove Selected.")
+            owned=_short_owned_queue_jobs(request,ids)
+            if len(owned)!=len(ids):
+                raise PermissionError("Selected jobs changed or are not owned. Refresh Queue.")
+            for job in owned:
+                source=v6_store.job_source(int(job["id"]))
+                if source:
+                    _v6_profile(int(source["profile_id"]),request)
+            removed,blocked=db.delete_shortstudio_queue_jobs(ids)
+            with v6_store.connect() as con:
+                for vid in ids:
+                    if not db.get_video(vid):
+                        con.execute(
+                            "UPDATE job_sources SET state='CANCELLED',updated_at=CURRENT_TIMESTAMP "
+                            "WHERE video_id=?",(vid,)
+                        )
+            return redirect("/app?tab=auto_engine",
+                message=(f"Removed {removed} selected Short queue job(s); "
+                         f"{blocked} remained protected (active/changed). "
+                         "Source files and permanent YouTube/upload evidence were retained."))
         except Exception as exc:
             return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song":
