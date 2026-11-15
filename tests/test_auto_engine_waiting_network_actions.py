@@ -229,7 +229,9 @@ class WaitingNetworkQueueActions(unittest.TestCase):
             worker.count('if clean(row.get("recovery_state")).upper()=="REVIEW_REQUIRED":'),
             2,
         )
-        self.assertIn("NETWORK_ONLY_FILES=FILES+('lum_engine/auto_engine_v6_scheduler.py',)", source)
+        self.assertIn("NETWORK_ONLY_FILES=FILES+('lum_engine/auto_engine_v6_scheduler.py',", source)
+        self.assertIn("'lum_engine/sheets_bridge.py'", source)
+        self.assertIn("'desktop_core/modules/google_sheet_sync.py'", source)
 
     def test_wrong_status_cannot_retry_or_cancel(self):
         with self.connect() as conn:
