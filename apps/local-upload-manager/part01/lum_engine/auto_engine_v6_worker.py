@@ -140,6 +140,10 @@ def retry_proxy_waits(db:Database,store:V6Store) -> None:
     for row in _auto_jobs(db):
         if clean(row.get("status")).upper()!="WAITING_NETWORK":
             continue
+        # Never recover a review-required job automatically, even if an old
+        # persisted proxy/network marker still looks eligible for a retry.
+        if clean(row.get("recovery_state")).upper()=="REVIEW_REQUIRED":
+            continue
         parsed=_parse_proxy_marker(row.get("error_message"))
         if not parsed:
             continue
@@ -197,6 +201,10 @@ def retry_network_waits(db:Database,store:V6Store) -> None:
     now=datetime.now(timezone.utc)
     for row in _auto_jobs(db):
         if clean(row.get("status")).upper()!="WAITING_NETWORK":
+            continue
+        # Never recover a review-required job automatically, even if an old
+        # persisted proxy/network marker still looks eligible for a retry.
+        if clean(row.get("recovery_state")).upper()=="REVIEW_REQUIRED":
             continue
         vid=int(row["id"])
         marker=_parse_network_marker(row.get("error_message"))
