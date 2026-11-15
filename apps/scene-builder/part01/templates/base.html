@@ -147,6 +147,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 {% if request.session.get("is_admin") or "copyright" in request.session.get("studio_access", ()) %}<a href="/video-merger/">Copyright Studio</a>{% endif %}
 {% if request.session.get("is_admin") or "voice" in request.session.get("studio_access", ()) %}<a class="{% if page=='voice_studio' %}active{% endif %}" href="/voice-studio/app#vps1-production">Voice Studio</a>{% endif %}
 {% if request.session.get("is_admin") %}<a class="{% if page in ['experiment_studio','auto_script','local_upload_manager','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded','cloud_render','heygen_studio'] %}active{% endif %}" href="/experiment-studio/">Experiment Studio</a>{% endif %}
+{% if not request.session.get("is_admin") %}<a class="{% if page=='heygen_studio' %}active{% endif %}" href="/heygen-studio/">HeyGen Studio</a>{% endif %}
 <!-- Experiment Studio tabs are presentation-only; hidden tools and their routes are preserved. -->
 
     <!-- YOUTUBE_NICHE_RESEARCH_V1_NAV -->
