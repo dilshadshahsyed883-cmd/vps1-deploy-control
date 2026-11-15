@@ -157,11 +157,25 @@
           error.textContent = job.error;
           card.append(error);
         }
+        if (job.vps_media) {
+          const saved = document.createElement("p");
+          saved.className = "hg-note";
+          saved.textContent = job.vps_media.state === "ready"
+            ? "MP4 verified and saved on VPS (available when GPU is offline)"
+            : job.vps_media.state === "copying"
+              ? "Copying verified MP4 to VPS…"
+              : job.vps_media.state === "failed"
+                ? "VPS media copy failed; use Retry VPS Save"
+                : "VPS media copy pending";
+          card.append(saved);
+        }
         const actions = document.createElement("div");
         actions.className = "hg-actions";
         if (job.status === "completed") {
           actions.append(button("Preview", () => window.open("/api/heygen-studio/jobs/" + job.id + "/video", "_blank", "noopener,noreferrer")));
           actions.append(button("Download", () => {window.location.href="/api/heygen-studio/jobs/" + job.id + "/video?download=1";}));
+          if (job.vps_media && !["ready", "copying"].includes(job.vps_media.state))
+            actions.append(button(job.vps_media.state === "failed" ? "Retry VPS Save" : "Save to VPS", () => jobAction(job, "save")));
         }
         if (["queued", "running", "cancelling"].includes(job.status))
           actions.append(button("Cancel", () => jobAction(job, "cancel"), true));
