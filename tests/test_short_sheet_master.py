@@ -27,6 +27,11 @@ class Store:
         con.row_factory = sqlite3.Row
         return con
 
+    def get_sheet_source(self, source_id):
+        with self.connect() as con:
+            row = con.execute("SELECT id FROM sheet_sources WHERE id=?", (int(source_id),)).fetchone()
+            return {"id": int(row[0]), "sheet_url_or_id": "offline-fixture"} if row else None
+
 
 def tenant(store):
     spec = importlib.util.spec_from_file_location("short_master_tenants", PART / "lum_engine/studio_tenants.py")
@@ -196,6 +201,24 @@ class ShortSheetMasterContracts(unittest.TestCase):
             c.execute("""UPDATE sheet_sources SET
                 last_sync_at='2020-01-01 00:00:00' WHERE id=1""")
         self.assertFalse(owned_sheet_fresh(self.store, "alice"))
+
+    def test_failed_fresh_sync_immediately_blocks_new_uploads_preserving_last_success(self):
+        from lum_engine.sheets_bridge import owned_sheet_fresh, sync_owned_sheet_source
+        self.tenant.sync_owned_sheet_rows("alice", 1, [self.sheet_row(include_group=False)])
+        self.assertTrue(owned_sheet_fresh(self.store, "alice"))
+        original = self.data()
+        with self.assertRaisesRegex(ValueError, "zero rows"):
+            sync_owned_sheet_source(
+                self.store, self.tenant, "alice", 1,
+                fetch_rows=lambda url, gid: [],
+            )
+        self.assertFalse(owned_sheet_fresh(self.store, "alice"))
+        self.assertEqual(self.data()["proxy_port"], original["proxy_port"])
+        self.assertEqual(self.data()["token_file_path"], original["token_file_path"])
+        with self.store.connect() as con:
+            row = con.execute("SELECT last_sync_at,last_sync_status FROM sheet_sources WHERE id=1").fetchone()
+            self.assertTrue(row["last_sync_at"])
+            self.assertTrue(row["last_sync_status"].startswith("SHEET_MASTER_FAILED:"))
 
     def test_scoped_scheduler_and_worker_only_use_fresh_owner_sheets(self):
         scheduler = (PART / "lum_engine/auto_engine_v6_scheduler.py").read_text()
