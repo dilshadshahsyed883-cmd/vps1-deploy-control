@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="/static/heygen_studio.css?v=1">
 <section class="hg-wrap" id="heygen-studio" data-csrf="{{ csrf_token }}" aria-labelledby="hg-heading">
   <header class="hg-head">
-    <div><div class="hg-eyebrow">EXPERIMENT STUDIO / ADMIN ONLY</div>
+    <div><div class="hg-eyebrow">EXPERIMENT STUDIO / OWNER-SCOPED</div>
       <h2 id="hg-heading">HeyGen Studio</h2>
       <p>Generate a talking-avatar video from your portrait and voice recording.</p></div>
     <span id="hg-connection" class="hg-pill">GPU not configured</span>
@@ -63,7 +63,7 @@
       <div class="hg-field">
         <label for="hg-endpoint">GPU API HTTPS URL</label>
         <input id="hg-endpoint" type="url" placeholder="https://your-gpu-endpoint.example" autocomplete="off">
-        <small>GPU endpoint host must first be permitted in server HEYGEN_WORKER_ALLOWED_HOSTS, or provided by HEYGEN_WORKER_URL.</small>
+        <small>The configured SaladCloud gateway is explicitly approved. Other endpoints must be permitted in HEYGEN_WORKER_ALLOWED_HOSTS or HEYGEN_WORKER_URL.</small>
       </div>
       <div class="hg-field">
         <label for="hg-token">AVATAR_API_KEY</label>
