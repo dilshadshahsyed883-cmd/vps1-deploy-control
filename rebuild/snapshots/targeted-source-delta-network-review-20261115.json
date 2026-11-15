@@ -1,0 +1,12 @@
+{
+  "source": "SHORT_WAITING_NETWORK_REVIEWED_RECOVERY_20261115",
+  "scope": "Explicit manual YouTube Studio confirmation for owned WAITING_NETWORK review jobs; previous historical and tenant source snapshots remain unchanged",
+  "entries": [
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py",
+      "previous_sha256": "cfff2bda08e9b8bf2dfb42fed2b18958087911ee175b52463598a32d28001471",
+      "current_sha256": "e16c3187b2f3d83a65faefeaec1b262b484a6f3d80031fb5fc5e297c96d6c657",
+      "reason": "Guarded reviewed Retry/Cancel only after manual confirmation, with owner, remote ID, worker and ledger safety guards."
+    }
+  ]
+}
