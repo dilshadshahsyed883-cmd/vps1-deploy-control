@@ -77,6 +77,7 @@ class HeygenStudioTest(unittest.TestCase):
         self.bridge = register_heygen_studio(
             app, Jinja2Templates(directory=str(SCENE / "templates")),
             self.tmp.name, admin, login, transport=httpx.MockTransport(upstream))
+        self.addCleanup(self.bridge.media.pool.shutdown, wait=True)
         self.addCleanup(self.bridge.outbox.close)
 
         @app.get("/_fixture/session/{role}/{owner}")
