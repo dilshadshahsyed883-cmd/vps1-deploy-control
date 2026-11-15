@@ -8,7 +8,7 @@
 - ASP.NET Core relay with two authenticated WSS endpoints, one Windows agent and one browser viewer at a time; outbound-only connection from the Windows PC.
 - Windows 10/11 x64 .NET agent: primary-screen JPEG at ~4 fps (max 1280px wide) only while a viewer is connected; mouse, click/drag, right/double-click, wheel, typing, basic keys.
 - The relay transports control packets and screen JPEGs; authentication, rate limiting, message-size limits, fixed command vocabulary, origin check and single-viewer policy are applied at the server.
-- GitHub Actions creates a self-contained portable Windows x64 agent and performs relay build + unauthenticated/login smoke checks. No automatic production deployment.
+- GitHub Actions creates a self-contained portable Windows x64 agent with a one-click DPAPI pairing launcher, builds the relay container, and performs login + authenticated WebSocket integration tests. No automatic production deployment.
 
 ## Architecture
 
@@ -46,17 +46,22 @@ Serve only over HTTPS, block public port 5123 in firewall, isolate process and f
 
 ## Windows PC
 
-1. Download the MyRemote-Windows-x64 artifact from a successful My Remote MVP GitHub Actions run.
-2. Unzip to a folder controlled by the PC owner. Verify the workflow's printed SHA-256 checksum.
-3. Open PowerShell and configure the current session (use your actual HTTPS hostname and the server's agent token):
+1. Download MyRemote-Windows-x64 from a successful My Remote MVP GitHub Actions run and unzip all files to a folder that you control.
+2. Double-click Start-MyRemote.cmd in that folder. The first run asks for your relay HTTPS URL and your private agent token. Do not enter the Android login password here.
+3. The pairing token is stored encrypted with **Windows DPAPI** for the current Windows account, in LocalApplicationData/MyRemote (not in the repository or plaintext script). Double-click the same CMD on subsequent runs.
+4. Keep the window running and Windows signed in/unlocked. Ctrl+C stops control; the agent reconnects automatically after transient disconnects. No inbound Windows port forwarding required.
 
-       $env:REMOTE_SERVER_URL = "wss://remote.example.com"
-       $env:REMOTE_AGENT_TOKEN = "<private agent token>"
-       .\MyRemote.Agent.exe
+To clear saved pairing, run Reset-MyRemote.ps1 under the same Windows user. This does not revoke the token on the relay: rotate REMOTE_AGENT_TOKEN separately when needed.
 
-4. Keep the agent window open and Windows signed in/unlocked. Ctrl+C stops remote access. It reconnects automatically after a transient disconnect. No Windows firewall inbound port forwarding is required.
+You can also run the EXE manually from PowerShell by providing REMOTE_SERVER_URL (wss://) and REMOTE_AGENT_TOKEN as process environment variables. Do **not** paste secrets in shared chat, terminal histories, public repos or screenshots.
 
-Be careful entering secrets in shell history; use a protected secret store for longer-term operation. Never ask someone to run an unknown agent or share credentials.
+## Isolated relay container
+
+From apps/my-remote, prepare a secrets/relay.env file from secrets/relay.env.example with mode 0600. Generate two independent cryptographic random strings (at least 32 characters), never reuse the Android password as the agent token. For example: openssl rand -hex 32. Configure REMOTE_PUBLIC_ORIGIN as the actual dedicated HTTPS origin.
+
+Run docker compose up -d --build in an isolated test environment. The relay binds **only 127.0.0.1:5123** on the host. Configure a dedicated HTTPS/WSS hostname in a reverse proxy, ensure TLS certificate and WebSocket Upgrade forwarding, and test the full public hostname before any external use.
+
+This does not configure DNS or Nginx automatically. **Do not run these commands on the existing VPS_1 production host** without an independently checked, approved isolated deployment and rollback path.
 
 ## Android phone
 
