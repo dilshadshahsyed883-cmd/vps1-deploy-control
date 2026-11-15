@@ -227,7 +227,8 @@ class StudioTenants:
             if "sr" in supplied:
                 fields["sheet_sr"] = str(getattr(raw, "sr", "") or "").strip()[:80]
             if "status" in supplied:
-                status = str(getattr(raw, "sheet_status", "") or "").strip().upper()[:120]
+                source_status = str(getattr(raw, "sheet_status", "") or "").strip()[:120]
+                status = source_status.upper()
                 if status:
                     if status in {"ACTIVE", "ENABLED", "YES", "TRUE", "ON", "1"}:
                         fields["status"] = "ACTIVE"
@@ -242,7 +243,7 @@ class StudioTenants:
                         # Unlike ID/proxy conflicts, this cannot invalidate all
                         # unrelated Sheet proxy and channel configuration.
                         unmapped_status_keys.add(key)
-                fields["sheet_status"] = status
+                fields["sheet_status"] = source_status
             if "group" in supplied:
                 names = []
                 for candidate in re.split(r"[,;|]+", str(getattr(raw, "group", "") or "")):
