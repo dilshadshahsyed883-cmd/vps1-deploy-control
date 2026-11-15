@@ -649,12 +649,14 @@ def shortstudio_rolled_back_empty(state: Path, *, unit_dir: Path = Path("/etc/sy
     return True
 
 
-def lum_parked_network_idle(conn: sqlite3.Connection) -> int:
-    """Allow release only for proven parked, pre-upload Auto Engine network waits.
+def lum_parked_network_idle(conn: sqlite3.Connection, *, allow_review_required: bool = False) -> int:
+    """Prove network-wait rows are parked before restarting an uploader.
 
-    WAITING_NETWORK is not by itself evidence of active media upload. A row is
-    safe only if it has no claim, remote/resumable identity, sent media bytes or
-    unsafe ledger state. Fail closed on unknown/legacy schemas and any doubt.
+    Normally only pre-media waits without remote evidence are accepted.
+    The isolated Short Uploader reviewed-recovery release may also preserve
+    unclaimed REVIEW_REQUIRED waits *as-is*. This is proof of process idleness,
+    NOT permission to retry, cancel, clear, or discard the remote evidence.
+    Other release callers retain strict behavior by default.
     """
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
@@ -679,7 +681,13 @@ def lum_parked_network_idle(conn: sqlite3.Connection) -> int:
     for row in rows:
         if not row["auto_engine_profile_id"] or str(row["claim_worker_id"] or "").strip():
             raise RuntimeError("Network wait still belongs to a worker or non-Auto Engine job")
-        if str(row["recovery_state"] or "").upper() not in {"", "NONE"}:
+        recovery = str(row["recovery_state"] or "").upper()
+        if recovery == "REVIEW_REQUIRED" and allow_review_required:
+            # A parked review job is not running, but its remote state may be
+            # ambiguous. Preserve all SQLite evidence and leave it blocked.
+            # The upgraded worker must never auto-retry this job.
+            continue
+        if recovery not in {"", "NONE"}:
             raise RuntimeError("Network wait has unresolved recovery evidence")
         if any(str(row[k] or "").strip() for k in ("youtube_video_id", "youtube_url", "resumable_uri")):
             raise RuntimeError("Network wait has remote/resumable upload identity")

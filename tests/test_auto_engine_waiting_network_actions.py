@@ -185,6 +185,52 @@ class WaitingNetworkQueueActions(unittest.TestCase):
         self.assertIn("parked = lum_parked_network_idle(conn)", source)
         self.assertIn('"PROCESSING", "IN_PROGRESS")', source)
 
+    def test_guarded_release_preserves_parked_review_evidence_without_reset(self):
+        runtime = ROOT / "production/runtime.py"
+        tree = ast.parse(runtime.read_text())
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                  and n.name == "lum_parked_network_idle")
+        scope = {"sqlite3": sqlite3}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                     str(runtime), "exec"), scope)
+        guard = scope["lum_parked_network_idle"]
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE videos SET recovery_state='REVIEW_REQUIRED',"
+                "media_stage_state='RUNNING',pipeline_stage='MEDIA',"
+                "upload_bytes_confirmed=52,resumable_uri='session',progress=45 WHERE id=1"
+            )
+            conn.execute("UPDATE upload_ledger SET state='AMBIGUOUS' WHERE video_id=1")
+        with self.connect() as conn:
+            with self.assertRaisesRegex(RuntimeError, "recovery evidence"):
+                guard(conn)
+            self.assertEqual(guard(conn, allow_review_required=True), 1)
+        self.assertEqual(self.row()["status"], "WAITING_NETWORK")
+        self.assertEqual(self.row()["recovery_state"], "REVIEW_REQUIRED")
+        self.assertEqual(self.row()["upload_bytes_confirmed"], 52)
+        self.assertEqual(self.row()["resumable_uri"], "session")
+        with self.connect() as conn:
+            self.assertEqual(conn.execute(
+                "SELECT state FROM upload_ledger WHERE video_id=1"
+            ).fetchone()[0], "AMBIGUOUS")
+            conn.execute("UPDATE videos SET claim_worker_id='active-worker' WHERE id=1")
+            with self.assertRaisesRegex(RuntimeError, "worker"):
+                guard(conn, allow_review_required=True)
+            conn.execute("UPDATE videos SET claim_worker_id=NULL,recovery_state='AUTO_RESUME' WHERE id=1")
+            with self.assertRaisesRegex(RuntimeError, "recovery evidence"):
+                guard(conn, allow_review_required=True)
+
+    def test_review_release_only_scopes_parked_network_rows_and_worker_never_retries(self):
+        source = (ROOT / "production/short_uploader_group_release.py").read_text()
+        self.assertIn("lum_parked_network_idle(con, allow_review_required=True)", source)
+        self.assertIn("idle(allow_waiting_network=True) if network_only else idle()", source)
+        worker = (PART / "lum_engine/auto_engine_v6_worker.py").read_text()
+        self.assertEqual(
+            worker.count('if clean(row.get("recovery_state")).upper()=="REVIEW_REQUIRED":'),
+            2,
+        )
+        self.assertIn("NETWORK_ONLY_FILES=FILES+('lum_engine/auto_engine_v6_scheduler.py',)", source)
+
     def test_wrong_status_cannot_retry_or_cancel(self):
         with self.connect() as conn:
             conn.execute("UPDATE videos SET status='UPLOADING' WHERE id=1")
