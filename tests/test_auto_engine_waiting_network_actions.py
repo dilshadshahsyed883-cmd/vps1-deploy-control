@@ -306,7 +306,7 @@ class WaitingNetworkQueueActions(unittest.TestCase):
         self.assertNotIn('data-ae-network-review-form', js)
         self.assertIn("queue-layout=20261115-v2", base)
         routes = ROUTES.read_text()
-        self.assertIn('os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio"', routes)
+        self.assertIn("Old per-job network recovery controls are retired.", routes)
         self.assertIn('Legacy YouTube Studio review controls were removed.', routes)
 
     def test_stale_queue_ids_are_pruned_after_live_refresh(self):
