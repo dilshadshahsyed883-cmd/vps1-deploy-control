@@ -102,6 +102,9 @@ class SongSheetsOnlyTests(TestCase):
             "studio_tenants": SimpleNamespace(
                 sync_owned_sheet_rows=lambda username, sid, rows: (
                     calls.append(("sync", sid)) or {"ok": True, "rows": 1})),
+            "web_sync_owned_sheet_source": lambda db, tenants, username, sid, *,
+                fetch_rows, parse_rows: tenants.sync_owned_sheet_rows(
+                    username, sid, parse_rows(fetch_rows(db.get_sheet_source(sid)["sheet_url_or_id"], None), "/tmp")),
             "web_sync_sheet_source_by_id": lambda *args: (
                 _ for _ in ()).throw(AssertionError("Global source sync")),
             "web_sync_all_sheet_sources": lambda *args: (
