@@ -1,0 +1,12 @@
+{
+  "source": "SHORT_STUDIO_ONE_CLICK_PAUSED_RECOVERY_20261115",
+  "scope": "Append-only approved Short Uploader recovery database source delta; historic Agent1, tenant and network-review captures unchanged",
+  "entries": [
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py",
+      "previous_sha256": "e16c3187b2f3d83a65faefeaec1b262b484a6f3d80031fb5fc5e297c96d6c657",
+      "current_sha256": "faf48bf4339759a8f86fb0771f4f004b6a5f21653f58de4cd8c48733def0bfe7",
+      "reason": "Owner-only one-click pause recovery; preserve known remote YouTube identities and completed upload receipts, record warning for ambiguous fresh restarts"
+    }
+  ]
+}
