@@ -47,6 +47,50 @@ def delete_sheet_source(db: Any, source_id: int) -> None:
     db.delete_sheet_source(int(source_id))
 
 
+def sync_owned_sheet_source(db: Any, tenants: Any, username: str, source_id: int) -> Dict[str, Any]:
+    """Canonical first-tab Sheet pull for a verified owner; never trust a URL from a POST."""
+    source = db.get_sheet_source(int(source_id))
+    if not source:
+        raise ValueError("Sheet source not found")
+    if tenants.owner("sheet", int(source_id)) != tenants.username(username):
+        raise PermissionError("Sheet source is not owned by this account")
+    rows = fetch_sheet_csv(source["sheet_url_or_id"], None)
+    if not rows:
+        raise ValueError("Sheet returned zero rows; no configuration changed")
+    parsed = rows_to_sheet_rows(rows, str(TOKEN_DIR))
+    return tenants.sync_owned_sheet_rows(username, int(source_id), parsed)
+
+
+def owned_sheet_fresh(db: Any, *, minutes: int = 17) -> bool:
+    """Gate NEW Short Uploader leases/queue admissions on recent clean Sheet data.
+
+    No data is cleared on a network error; queued or in-flight uploads remain
+    stored, and the scheduler retries later. The grace covers one scheduler tick.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    with db.connect() as conn:
+        sources = conn.execute(
+            "SELECT last_sync_at,last_sync_status FROM sheet_sources WHERE enabled=1"
+        ).fetchall()
+    if not sources:
+        return True  # Manual-only installs remain functional.
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    for src in sources:
+        if not str(src["last_sync_status"] or "").startswith("OWNED_SYNC:"):
+            return False
+        stamp = str(src["last_sync_at"] or "").strip()
+        try:
+            last = datetime.fromisoformat(stamp.replace(" ", "T"))
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return False
+        if last < cutoff:
+            return False
+    return True
+
+
 def sync_sheet_source_by_id(db: Any, source_id: int) -> Dict[str, Any]:
     source = db.get_sheet_source(int(source_id))
     if not source:
