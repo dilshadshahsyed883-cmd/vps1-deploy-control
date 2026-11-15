@@ -106,6 +106,7 @@ app.Map("/ws/agent", async (HttpContext ctx) =>
         return;
     }
     await relay.SendViewerTextAsync("{\"type\":\"online\"}");
+    if (relay.HasViewer) await relay.SendAgentTextAsync("{\"type\":\"stream\",\"enabled\":true}");
     try
     {
         while (socket.State == WebSocketState.Open)
@@ -136,6 +137,7 @@ app.Map("/ws/viewer", async (HttpContext ctx) =>
         return;
     }
     await relay.SendViewerTextAsync(relay.IsAgentOnline ? "{\"type\":\"online\"}" : "{\"type\":\"offline\"}");
+    await relay.SendAgentTextAsync("{\"type\":\"stream\",\"enabled\":true}");
     try
     {
         while (socket.State == WebSocketState.Open)
@@ -148,7 +150,12 @@ app.Map("/ws/viewer", async (HttpContext ctx) =>
         }
     }
     catch (Exception ex) when (ex is WebSocketException or IOException or InvalidDataException or OperationCanceledException) { }
-    finally { relay.ReleaseViewer(socket); }
+    finally
+    {
+        relay.ReleaseViewer(socket);
+        if (!relay.HasViewer) await relay.SendAgentTextAsync("{\"type\":\"stream\",\"enabled\":false}");
+        await relay.SendAgentTextAsync("{\"type\":\"release\"}");
+    }
 });
 
 app.Run();
@@ -227,6 +234,7 @@ sealed class Relay
     private WebSocket? viewer;
 
     public bool IsAgentOnline { get { lock (gate) return agent?.State == WebSocketState.Open; } }
+    public bool HasViewer { get { lock (gate) return viewer?.State == WebSocketState.Open; } }
     public bool AcquireAgent(WebSocket socket)
     { lock (gate) { if (agent is not null) return false; agent = socket; return true; } }
     public bool AcquireViewer(WebSocket socket)
