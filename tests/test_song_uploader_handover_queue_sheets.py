@@ -73,6 +73,10 @@ class SongMemberHandover(TestCase):
             "require_csrf": lambda *args: None, "require_heavy": lambda *args: None,
             "tenant_fetch_sheet_csv": lambda link, gid: (calls.append(("fetch", link)) or [{"row": 1}]),
             "tenant_rows_to_sheet_rows": lambda rows, path: rows, "tenant_token_dir": "/tmp",
+            "web_sync_owned_sheet_source": lambda db, tenants, username, sid, *,
+                fetch_rows, parse_rows: tenants.sync_owned_sheet_rows(
+                    username, sid, parse_rows(fetch_rows(
+                        next(source["sheet_url_or_id"] for source in sources if source["id"] == sid), None), "/tmp")),
             "web_sync_all_sheet_sources": lambda *args: (_ for _ in ()).throw(AssertionError("Global sheet sync")),
             "redirect": lambda url, **kwargs: (url, kwargs),
         })
