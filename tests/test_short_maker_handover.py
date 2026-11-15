@@ -109,10 +109,15 @@ class ShortMakerHandoverTests(unittest.TestCase):
         self.assertEqual(self.client.delete("/api/vps-folders/Personal Work", headers=FOREIGN).status_code, 403)
         folder = self.maker.short_vps_folder("Personal Work")
         (folder / "existing.mp4").write_bytes(b"do not delete")
-        self.assertEqual(self.client.delete("/api/vps-folders/Personal Work", headers=USER).status_code, 409)
+        not_confirmed = self.client.request(
+            "DELETE", "/api/vps-folders/Personal Work", headers=USER,
+            json={"confirm_delete": False})
+        self.assertEqual(not_confirmed.status_code, 409, not_confirmed.text)
         self.assertTrue((folder / "existing.mp4").exists())
-        (folder / "existing.mp4").unlink()
-        self.assertEqual(self.client.delete("/api/vps-folders/Personal Work", headers=USER).status_code, 200)
+        confirmed = self.client.request(
+            "DELETE", "/api/vps-folders/Personal Work", headers=USER,
+            json={"confirm_delete": True})
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
         self.assertFalse(folder.exists())
         legacy = self.maker.short_vps_folder("Legacy")
         legacy.mkdir()
