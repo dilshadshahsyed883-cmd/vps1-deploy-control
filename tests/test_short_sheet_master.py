@@ -180,6 +180,34 @@ class ShortSheetMasterContracts(unittest.TestCase):
             self.tenant.sync_owned_sheet_rows("alice", 1, [self.sheet_row()])
         self.assertEqual(self.data()["proxy_port"], "10022")
 
+    def test_freshness_is_per_user_and_requires_new_master_receipt(self):
+        from lum_engine.sheets_bridge import owned_sheet_fresh
+        self.assertFalse(owned_sheet_fresh(self.store, "alice"))
+        self.assertFalse(owned_sheet_fresh(self.store, "bob"))
+        with self.store.connect() as c:
+            c.execute("""UPDATE sheet_sources SET
+                last_sync_at=CURRENT_TIMESTAMP,last_sync_status='OWNED_SYNC: rows=1'
+                WHERE id=1""")
+        self.assertFalse(owned_sheet_fresh(self.store, "alice"))
+        self.tenant.sync_owned_sheet_rows("alice", 1, [self.sheet_row(include_group=False)])
+        self.assertTrue(owned_sheet_fresh(self.store, "alice"))
+        self.assertFalse(owned_sheet_fresh(self.store, "bob"))
+        with self.store.connect() as c:
+            c.execute("""UPDATE sheet_sources SET
+                last_sync_at='2020-01-01 00:00:00' WHERE id=1""")
+        self.assertFalse(owned_sheet_fresh(self.store, "alice"))
+
+    def test_scoped_scheduler_and_worker_only_use_fresh_owner_sheets(self):
+        scheduler = (PART / "lum_engine/auto_engine_v6_scheduler.py").read_text()
+        worker = (PART / "lum_engine/auto_engine_v6_worker.py").read_text()
+        app = (PART / "lum_engine/standalone_app.py").read_text()
+        self.assertIn("next_sheet_poll = time.monotonic() + 15 * 60", scheduler)
+        self.assertIn("owned_sheet_fresh(db, owner)", scheduler)
+        self.assertIn('sheet_tenants.owner("profile",pid)', worker)
+        self.assertIn("owned_sheet_fresh(db,owner)", worker)
+        self.assertIn("_short_sheet_sync_before_start(user)", app)
+        self.assertIn("web_sync_owned_sheet_source(", app)
+
     def test_source_owner_cannot_be_impersonated(self):
         with self.assertRaises(PermissionError):
             self.tenant.sync_owned_sheet_rows("bob", 1, [self.sheet_row()])
