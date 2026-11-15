@@ -248,6 +248,59 @@ class WaitingNetworkQueueActions(unittest.TestCase):
         self.assertLess(src.index("lum-ae-network-actions"), src.index("{% if q.channel_job %}"))
         Environment().parse(src)
 
+    def test_review_panel_has_one_full_width_confirmation_and_two_unclipped_actions(self):
+        src = TEMPLATE.read_text()
+        start = src.index("{% for q in ae.queue %}<tr>")
+        end = src.index("{% endfor %}", start) + len("{% endfor %}")
+        fragment = Environment().from_string(src[start:end])
+        base = {
+            "id": 1190, "status": "WAITING_NETWORK", "recovery_state": "REVIEW_REQUIRED",
+            "channel_name": "Wadero", "metadata_video_key": None, "channel_job": False,
+            "source_filename": "ronaldo 2 song 098.mp4", "thumbnail_filename": None,
+            "title": "Ronaldo test title", "app_upload_at": None, "youtube_url": None,
+        }
+        def render(mode, **changes):
+            job = dict(base, **changes)
+            return fragment.render(ae={"queue": [job]}, engine_instance=mode,
+                                   base_path="/short-uploader", csrf="csrf-test",
+                                   user={"is_admin": False})
+
+        reviewed = render("shortstudio")
+        self.assertIn('class="lum-ae-review-row"', reviewed)
+        self.assertIn('colspan="12"', reviewed)
+        self.assertIn('class="lum-ae-review-confirmation"', reviewed)
+        self.assertEqual(reviewed.count('name="confirmation"'), 1)
+        self.assertEqual(reviewed.count('name="video_id"'), 1)
+        self.assertEqual(reviewed.count('name="action" value="retry"'), 1)
+        self.assertEqual(reviewed.count('name="action" value="cancel"'), 1)
+        self.assertIn("Retry after review", reviewed)
+        self.assertIn("Cancel after review", reviewed)
+        self.assertNotIn('<div class="lum-ae-network-actions"', reviewed)
+
+        normal = render("shortstudio", recovery_state="NONE")
+        self.assertIn("lum-ae-network-actions", normal)
+        self.assertNotIn("lum-ae-review-row", normal)
+        self.assertNotIn('name="confirmation"', normal)
+
+        song = render("song")
+        self.assertIn("lum-ae-network-actions", song)
+        self.assertNotIn("lum-ae-review-row", song)
+        self.assertEqual(song.count('name="confirmation"'), 2)
+
+    def test_review_ui_css_and_live_refresh_preserve_typed_confirmation(self):
+        css = (PART / "static/local_upload_manager.css").read_text()
+        js = SCRIPT.read_text()
+        base = (PART / "templates/base.html").read_text()
+        self.assertIn('.lum-ae-review-row td', css)
+        self.assertIn('max-width:none!important', css)
+        self.assertIn('.lum-ae-review-field input', css)
+        self.assertIn('white-space:nowrap!important', css)
+        self.assertIn('function reviewDraftInProgress(panel)', js)
+        self.assertIn('if(reviewDraftInProgress(live))return;', js)
+        self.assertIn("if(e.submitter?.value==='cancel'", js)
+        self.assertIn('if(f.matches(\'[data-ae-network-review-form]\'))', js)
+        self.assertIn('queue-review=20261115-v1', base)
+
     def test_stale_queue_ids_are_pruned_after_live_refresh(self):
         js = SCRIPT.read_text()
         self.assertIn("const visible=new Set(boxes.map(cb=>Number(cb.value)))", js)

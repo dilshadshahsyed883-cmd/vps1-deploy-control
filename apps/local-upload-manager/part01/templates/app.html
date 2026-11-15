@@ -1558,7 +1558,9 @@
         {% for q in ae.queue %}<tr><td><input type="checkbox" class="lum-ae-queue-select" value="{{ q.id }}"></td><td>{{ q.id }}</td><td><code>{{ q.metadata_video_key or 'Legacy' }}</code></td><td><span class="lum-state s-{{ (q.status or '')|lower }}">{{ q.status }}</span>
           {% if (q.status or '')|upper == 'WAITING_NETWORK' %}
           {% set network_review = (q.recovery_state or '')|upper == 'REVIEW_REQUIRED' %}
-          {% if network_review %}<small>Review required: confirm this video does not exist in YouTube Studio before retry or cancellation.</small>{% endif %}
+          {% if network_review and engine_instance == 'shortstudio' %}
+          <small class="lum-ae-review-hint">Review required · use the full-width panel below</small>
+          {% else %}
           <div class="lum-ae-network-actions" aria-label="Network recovery for job {{ q.id }}">
             <form method="post" action="{{ base_path }}/actions/auto-v6/job/network-action" data-lum-soft-form>
               <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input type="hidden" name="action" value="retry">
@@ -1572,9 +1574,35 @@
             </form>
           </div>
           {% endif %}
+          {% endif %}
         </td><td>{{ q.channel_name }}</td><td><span class="lum-ellipsis" title="{{ q.drive_file_id or '' }}">{{ q.source_filename or q.original_filename or q.local_video_path }}</span></td><td>{{ q.thumbnail_filename or '—' }}</td><td><span class="lum-ellipsis" title="{{ q.title|e }}">{{ q.title }}</span></td><td>{{ q.app_upload_at or 'Now / queued' }}</td><td>{% if q.youtube_url %}<a href="{{ q.youtube_url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td><td><span class="lum-ellipsis" title="{{ q.error_message or q.post_upload_state or '' }}">{{ q.error_message or q.post_upload_state or q.v6_state or '—' }}</span></td><td>{% if q.channel_job %}{% if engine_instance in ['song','shortstudio'] or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/job/upload-now" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><button class="lum-button secondary tiny" type="submit">Upload Now</button></form>
-{% endif %}<details><summary>Edit</summary><form method="post" action="{{ base_path }}/actions/auto-v6/job/edit" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input name="title" value="{{ q.title|e }}" maxlength="100" required><textarea name="description" rows="2">{{ q.description }}</textarea><button class="lum-button secondary tiny" type="submit">Save Job Only</button></form></details>{% else %}Legacy{% endif %}</td></tr>{% else %}<tr><td colspan="12"><div class="lum-empty">No Auto Engine queue rows.</div></td></tr>{% endfor %}
+{% endif %}<details><summary>Edit</summary><form method="post" action="{{ base_path }}/actions/auto-v6/job/edit" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input name="title" value="{{ q.title|e }}" maxlength="100" required><textarea name="description" rows="2">{{ q.description }}</textarea><button class="lum-button secondary tiny" type="submit">Save Job Only</button></form></details>{% else %}Legacy{% endif %}</td></tr>
+        {% if engine_instance == 'shortstudio' and (q.status or '')|upper == 'WAITING_NETWORK' and (q.recovery_state or '')|upper == 'REVIEW_REQUIRED' %}
+        <tr class="lum-ae-review-row" data-ae-review-for="{{ q.id }}">
+          <td colspan="12">
+            <div class="lum-ae-review-panel">
+              <div class="lum-ae-review-explainer">
+                <strong>Job #{{ q.id }} · YouTube Studio review required</strong>
+                <span>Check the video on <b>{{ q.channel_name }}</b> in YouTube Studio. Only continue if there is no remote upload.</span>
+              </div>
+              <form class="lum-ae-review-form" method="post" action="{{ base_path }}/actions/auto-v6/job/network-action" data-lum-soft-form data-ae-network-review-form>
+                <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                <input type="hidden" name="video_id" value="{{ q.id }}">
+                <label class="lum-ae-review-field">
+                  <span>Type NO REMOTE VIDEO to confirm</span>
+                  <input class="lum-ae-review-confirmation" type="text" name="confirmation" placeholder="NO REMOTE VIDEO" aria-label="Confirm no remote YouTube video exists for job {{ q.id }}" autocomplete="off" spellcheck="false" required maxlength="15">
+                </label>
+                <div class="lum-ae-review-buttons">
+                  <button class="lum-button secondary" type="submit" name="action" value="retry">Retry after review</button>
+                  <button class="lum-button danger" type="submit" name="action" value="cancel">Cancel after review</button>
+                </div>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+        {% else %}<tr><td colspan="12"><div class="lum-empty">No Auto Engine queue rows.</div></td></tr>{% endfor %}
         </tbody></table></div>
         {% if ae.queue|selectattr('status','equalto','PAUSED')|selectattr('recovery_state','equalto','REVIEW_REQUIRED')|list %}
         <div class="lum-ae-recovery">{% if engine_instance in ['song','shortstudio'] or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
