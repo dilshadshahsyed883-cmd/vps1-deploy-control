@@ -438,53 +438,16 @@ body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
 .lum-ae-queue .lum-ae-network-actions form{display:inline-flex!important;margin:0!important}
 .lum-ae-queue .lum-ae-network-actions .lum-button{font-size:10px!important;min-height:27px!important;padding:4px 9px!important}
 
-/* Short Studio network review: full-width row avoids 50px inputs and wrapped buttons.
-   Legacy/Song queue styles above remain unchanged. */
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-queue .lum-ae-review-row td{
-  max-width:none!important;padding:8px 12px 12px!important;white-space:normal!important;
-  background:#f8faff!important
+/* Short Studio queue: keep the actual error immediately beside Status.
+   Allow longer network error details to wrap instead of pushing table width. */
+.lum-shell[data-engine-instance="shortstudio"] .lum-ae-queue th:nth-child(5),
+.lum-shell[data-engine-instance="shortstudio"] .lum-ae-queue td:nth-child(5){
+  min-width:215px!important;width:270px!important;max-width:310px!important;
 }
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-queue .lum-ae-review-row:hover td{background:#f8faff!important}
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-hint{
-  display:block;margin-top:6px;max-width:185px;font-size:11px;line-height:1.4;color:#8a5a10
-}
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-panel{
-  box-sizing:border-box;display:flex;align-items:center;justify-content:flex-start;
-  flex-wrap:wrap;gap:12px 20px;padding:12px 16px;border:1px solid #dfd9fb;
-  border-left:4px solid #6d5ce7;border-radius:10px;background:#fff
-}
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-explainer{
-  display:flex;flex:0 1 270px;flex-direction:column;gap:4px;min-width:210px;
-  font-size:12px;line-height:1.45;color:#556277
-}
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-explainer strong{color:#27334a;font-size:12px}
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-form{
-  display:flex!important;flex:0 1 750px;justify-content:flex-start;align-items:flex-end;
-  gap:10px;flex-wrap:wrap;margin:0!important
-}
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-field{
-  display:flex!important;flex:1 1 250px;flex-direction:column;gap:5px;
-  min-width:245px;max-width:370px;margin:0!important
-}
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-field span{
-  font-weight:650;font-size:11px;line-height:1.4;color:#53627a
-}
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-field input{
-  box-sizing:border-box!important;display:block!important;min-width:0!important;
-  width:100%!important;max-width:none!important;min-height:38px!important;
-  margin:0!important;padding:8px 12px!important;border:1px solid #c5cfdf!important;
-  border-radius:8px!important;font-size:12px!important;letter-spacing:.015em
-}
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-buttons{
-  display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap
-}
-.lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-buttons .lum-button{
-  min-width:140px!important;min-height:38px!important;font-size:11px!important;
-  padding:8px 12px!important;white-space:nowrap!important;margin:0!important
-}
-@media(max-width:750px){
-  .lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-form{justify-content:flex-start}
-  .lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-field{max-width:none}
+.lum-shell[data-engine-instance="shortstudio"] .lum-ae-queue .lum-ae-error-text{
+  display:block;max-width:300px;white-space:normal!important;
+  overflow-wrap:anywhere;word-break:break-word;line-height:1.5;
+  max-height:4.5em;overflow:hidden;
 }
 
 /* Short Uploader profile selectors: keep controls compact and scannable. */
