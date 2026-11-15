@@ -159,6 +159,12 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
         self.assertEqual(len(short_resume["entries"]), 1)
         resume_deltas = {entry["path"]: entry for entry in short_resume["entries"]}
         self.assertEqual(len(resume_deltas), len(short_resume["entries"]))
+        # Append-only Short Studio parked-removal source hash; retain earlier attestations.
+        bulk = document("rebuild/snapshots/targeted-source-delta-short-bulk-remove-20261115.json")
+        self.assertEqual(bulk["source"], "SHORT_STUDIO_CONFIRMED_PARKED_BULK_REMOVAL_20261115")
+        self.assertEqual(len(bulk["entries"]), 1)
+        bulk_deltas = {entry["path"]: entry for entry in bulk["entries"]}
+        self.assertEqual(len(bulk_deltas), len(bulk["entries"]))
         self.assertEqual(capture["runtime_imported"], False)
         self.assertEqual(capture["source"], "AGENT1_TARGETED_LUM_DB_PYTHON")
         self.assertEqual(len(capture["modules"]), 24)
@@ -197,12 +203,19 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
                 self.assertRegex(delta["current_sha256"], HEX256)
                 self.assertEqual(expected_hash, delta["previous_sha256"], relative)
                 expected_hash = delta["current_sha256"]
+            if relative in bulk_deltas:
+                delta = bulk_deltas.pop(relative)
+                self.assertRegex(delta["previous_sha256"], HEX256)
+                self.assertRegex(delta["current_sha256"], HEX256)
+                self.assertEqual(expected_hash, delta["previous_sha256"], relative)
+                expected_hash = delta["current_sha256"]
             self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
                              expected_hash, relative)
         self.assertFalse(deltas, "Unrecognized targeted source delta")
         self.assertFalse(tenant_deltas, "Unrecognized tenant source delta")
         self.assertFalse(network_deltas, "Unrecognized network source delta")
         self.assertFalse(resume_deltas, "Unrecognized Short resume source delta")
+        self.assertFalse(bulk_deltas, "Unrecognized Short bulk-removal source delta")
 
     def test_auto_script_source_manifest_hashes(self):
         capture = document("apps/auto-script/SOURCE_SHA256.json")

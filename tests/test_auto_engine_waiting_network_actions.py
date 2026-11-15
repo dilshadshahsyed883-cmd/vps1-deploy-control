@@ -41,6 +41,20 @@ def short_resume_only():
     return scope["ShortResumeOnly"]
 
 
+def short_delete_only():
+    tree=ast.parse(REPO.read_text())
+    cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=="QueueRepository")
+    fn=next(n for n in cls.body if isinstance(n,ast.FunctionDef)
+            and n.name=="delete_shortstudio_queue_jobs")
+    module=ast.Module(body=[ast.ImportFrom(module="__future__",
+                 names=[ast.alias(name="annotations")],level=0),
+                 ast.ClassDef(name="DeleteOnly",bases=[],keywords=[],
+                              body=[fn],decorator_list=[])],type_ignores=[])
+    scope={}
+    exec(compile(ast.fix_missing_locations(module),str(REPO),"exec"),scope)
+    return scope["DeleteOnly"]
+
+
 class WaitingNetworkQueueActions(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -79,6 +93,56 @@ class WaitingNetworkQueueActions(unittest.TestCase):
     def row(self):
         with self.connect() as conn:
             return conn.execute("SELECT * FROM videos WHERE id=1").fetchone()
+
+    def test_short_bulk_removal_deletes_parked_rows_but_preserves_receipts(self):
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE videos SET status='WAITING_NETWORK',"
+                "recovery_state='REVIEW_REQUIRED',media_stage_state='RUNNING',"
+                "pipeline_stage='MEDIA',upload_bytes_confirmed=120 WHERE id=1"
+            )
+            conn.execute("UPDATE upload_ledger SET state='AMBIGUOUS' WHERE video_id=1")
+            for vid,status,claim,remote in [
+                (2,"PAUSED",None,None),
+                (3,"WAITING_NETWORK","live-worker",None),
+                (4,"UPLOADING",None,None),
+                (5,"WAITING_NETWORK",None,"existing_youtube_id"),
+                (6,"PAUSED",None,None),
+            ]:
+                conn.execute(
+                    "INSERT INTO videos(id,auto_engine_profile_id,status,recovery_state,"
+                    "claim_worker_id,channel_db_id,upload_fingerprint,"
+                    "youtube_video_id,media_stage_state,pipeline_stage) "
+                    "VALUES(?,9,?,'NONE',?,4,?,?,'PENDING','PENDING')",
+                    (vid,status,claim,"fp-"+str(vid),remote)
+                )
+                conn.execute(
+                    "INSERT INTO upload_ledger(video_id,channel_db_id,upload_fingerprint,"
+                    "state,youtube_video_id) VALUES(?,4,?,?,?)",
+                    (vid,"fp-"+str(vid),"REMOTE_CREATED" if remote else
+                     "CLAIMED" if claim else "RESERVED",remote)
+                )
+            conn.execute("UPDATE videos SET resumable_uri='session' WHERE id=6")
+        obj=short_delete_only()()
+        obj.connect=self.connect
+        self.assertEqual(obj.delete_shortstudio_queue_jobs([1,2,3,4,5,6]),(4,2))
+        with self.connect() as conn:
+            present={int(r["id"]) for r in conn.execute("SELECT id FROM videos")}
+            self.assertEqual(present,{3,4})
+            ledger={int(r["video_id"] or 0) if r["video_id"] else int(str(r["upload_fingerprint"]).split("-")[-1]):
+                    (r["state"],r["video_id"],r["youtube_video_id"])
+                    for r in conn.execute("SELECT * FROM upload_ledger")}
+            self.assertEqual(ledger[1][:2],("AMBIGUOUS",None))
+            self.assertEqual(ledger[2][:2],("CANCELLED",None))
+            self.assertEqual(ledger[3][:2],("CLAIMED",3))
+            self.assertEqual(ledger[4][:2],("RESERVED",4))
+            self.assertEqual(ledger[5],("REMOTE_CREATED",None,"existing_youtube_id"))
+            self.assertEqual(ledger[6][:2],("AMBIGUOUS",None))
+            audit=[r[0] for r in conn.execute(
+                "SELECT message FROM upload_logs WHERE video_id IS NULL")]
+            self.assertEqual(len(audit),4)
+            self.assertTrue(all("Source media" in msg for msg in audit))
+        self.assertEqual(obj.delete_shortstudio_queue_jobs([1,2,3,4,5,6]),(0,6))
 
     def test_one_click_short_resumes_ambiguous_and_preserves_remote_receipts(self):
         with self.connect() as conn:

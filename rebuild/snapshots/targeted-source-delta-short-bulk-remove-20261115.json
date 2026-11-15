@@ -1,0 +1,12 @@
+{
+  "source": "SHORT_STUDIO_CONFIRMED_PARKED_BULK_REMOVAL_20261115",
+  "scope": "Append-only targeted Short Uploader queue repository delta; earlier historical, network and one-click resume evidence preserved",
+  "entries": [
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py",
+      "previous_sha256": "faf48bf4339759a8f86fb0771f4f004b6a5f21653f58de4cd8c48733def0bfe7",
+      "current_sha256": "6774311e4a1e91e7cbc0686711e60a69713016be8b6a6e0086c94dffd23c1c55",
+      "reason": "Explicitly confirmed owner-scoped deletion of unclaimed PAUSED and WAITING_NETWORK rows; preserve remote video receipts, AMBIGUOUS ledger, source files and permanent history; exclude live worker claims"
+    }
+  ]
+}

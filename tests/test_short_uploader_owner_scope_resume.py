@@ -231,6 +231,54 @@ class ScopeTests(unittest.TestCase):
         self.assertIn("Resumed 1 owned paused",result[1]["message"])
         self.assertIn("checkpoint",result[1]["message"])
 
+    def test_short_remove_selected_requires_warning_confirmation_and_owner_scope(self):
+        calls=[]
+        jobs=[
+            {"id":11,"auto_engine_profile_id":10,"channel_db_id":11,"status":"PAUSED"},
+            {"id":12,"auto_engine_profile_id":10,"channel_db_id":11,"status":"WAITING_NETWORK"},
+        ]
+        class SourceConnection:
+            def __enter__(self): return self
+            def __exit__(self,*args): return False
+            def execute(self,sql,values): calls.append(("source",values))
+        def make_route(ids,confirmation,owned):
+            async def form():
+                return {"csrf_token":"token","confirmation":confirmation}
+            fn=extracted(WEB,["auto_v6_remove_selected"],{
+                "current_user":lambda req:{"username":"alice","is_admin":False},
+                "require_csrf":lambda *args:None,"require_heavy":lambda *args:None,
+                "_v6_selected_ids":lambda form:ids,
+                "_short_owned_queue_jobs":lambda req,selected:owned,
+                "v6_store":SimpleNamespace(job_source=lambda vid:None,
+                                           connect=lambda:SourceConnection()),
+                "db":SimpleNamespace(delete_shortstudio_queue_jobs=lambda selected:
+                                     (calls.append(("remove",list(selected))) or (2,0)),
+                                     get_video=lambda vid:None),
+                "redirect":lambda path,**kw:(path,kw),
+            })["auto_v6_remove_selected"]
+            return asyncio.run(fn(SimpleNamespace(form=form)))
+        response=make_route([11,12],"",jobs)
+        self.assertIn("Deletion not confirmed",response[1]["error"])
+        self.assertEqual(calls,[])
+        response=make_route([11,12],"REMOVE SELECTED QUEUE JOBS",jobs[:1])
+        self.assertIn("not owned",response[1]["error"])
+        self.assertEqual(calls,[])
+        response=make_route([11,12],"REMOVE SELECTED QUEUE JOBS",jobs)
+        self.assertEqual(calls[0],("remove",[11,12]))
+        self.assertIn("Removed 2 selected Short queue",response[1]["message"])
+        self.assertEqual(len([x for x in calls if x[0]=="source"]),2)
+
+    def test_short_queue_header_select_all_and_explicit_delete_warning(self):
+        html=(ROOT/"apps/local-upload-manager/part01/templates/app.html").read_text()
+        js=(ROOT/"apps/local-upload-manager/part01/static/auto_engine_v6.js").read_text()
+        self.assertIn('class="lum-ae-queue-select-all"',html)
+        self.assertIn('aria-label="Select all queue jobs"',html)
+        self.assertIn('name="confirmation" value="REMOVE SELECTED QUEUE JOBS"',html)
+        self.assertIn("including PAUSED and WAITING_NETWORK?",html)
+        self.assertIn("'.lum-ae-queue-select-all'",js)
+        self.assertIn("master.indeterminate",js)
+        self.assertIn("e.target.checked?qSelected.add(id):qSelected.delete(id)",js)
+
     def test_retired_review_clear_makes_no_queue_changes_even_with_old_confirmation(self):
         calls=[]
         async def form():
