@@ -174,8 +174,6 @@ class StudioTenants:
         A row's DB identity, OAuth token, queue history and foreign resources
         never change as a side effect of a Sheet refresh. No external writes.
         """
-        from desktop_core.modules.secret_store import protect_secret
-
         owner = self.username(username)
         source_id = int(sheet_id)
         if source_id <= 0 or len(rows) > 2000:
@@ -204,6 +202,7 @@ class StudioTenants:
             supplied = set(getattr(raw, "present_fields", ()) or ())
             fields = {}
             if "proxy" in supplied:
+                from desktop_core.modules.secret_store import protect_secret
                 host = str(getattr(raw, "proxy_host", "") or "").strip()
                 port = str(getattr(raw, "proxy_port", "") or "").strip()
                 scheme = str(getattr(raw, "proxy_scheme", "") or "").strip().lower()
