@@ -1260,7 +1260,7 @@
     </section>
 
     <section class="lum-card lum-ae-pc-controls" data-ae-panel="queue" hidden>
-      <div class="lum-card-head"><div><h2>Queue Controls</h2>{% if engine_instance != 'song' %}<p>Start, stop, retry, recover and manage the live upload queue from one place. Upload safety and duplicate protections remain unchanged.</p>{% endif %}</div>{% if engine_instance != 'song' %}<span class="lum-badge">PC CONTROL PARITY</span>{% endif %}</div>
+      <div class="lum-card-head"><div><h2>Queue Controls</h2>{% if engine_instance == 'shortstudio' %}<p>Resume Paused requeues your paused jobs in one click. Jobs without a saved upload checkpoint restart from zero and might duplicate an unrecorded YouTube upload.</p>{% elif engine_instance != 'song' %}<p>Start, stop, retry, recover and manage the live upload queue from one place. Upload safety and duplicate protections remain unchanged.</p>{% endif %}</div>{% if engine_instance != 'song' %}<span class="lum-badge">PC CONTROL PARITY</span>{% endif %}</div>
       <div class="lum-ae-pc-row lum-ae-pc-main">
         {% if engine_instance not in ['song','shortstudio'] and (user.is_admin or engine_instance not in ['song','shortstudio','copyright']) %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/engine" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="action" value="start"><button class="lum-button primary" type="submit">Start / Resume Engine</button></form>

@@ -1247,6 +1247,91 @@ class QueueRepository(BaseRepository):
                 )
             return int(cur.rowcount)
 
+    def resume_paused_shortstudio(self, video_ids: Iterable[int]) -> tuple[int, int, int]:
+        """One-click owner-scoped resume; explicit retry of ambiguous uploads.
+
+        Callers must pass only previously verified, owner-scoped Short Studio
+        job IDs. A missing upload checkpoint can mean that YouTube received
+        the previous upload: this operation does NOT assert otherwise.
+        Preserve known remote identities and completed ledger evidence.
+        Returns (resumed, fresh_restarts, blocked).
+        """
+        ids = sorted({int(value) for value in video_ids if int(value) > 0})
+        if not ids:
+            return 0, 0, 0
+        placeholders = ",".join("?" for _ in ids)
+        resumed = fresh = blocked = 0
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                f"""SELECT * FROM videos WHERE id IN ({placeholders})
+                    AND auto_engine_profile_id IS NOT NULL AND status='PAUSED'""", ids
+            ).fetchall()
+            for row in rows:
+                video_id = int(row["id"])
+                # A worker-held job must never be silently reset or reclaimed.
+                if str(row["claim_worker_id"] or "").strip():
+                    blocked += 1
+                    continue
+                recovery = str(row["recovery_state"] or "").strip().upper()
+                uncertain = recovery not in {"NONE", "AUTO_RESUME"}
+                resumable = str(row["resumable_uri"] or "").strip()
+                ledger = conn.execute(
+                    "SELECT state,youtube_video_id,youtube_url FROM upload_ledger WHERE video_id=? "
+                    "ORDER BY updated_at DESC LIMIT 1", (video_id,)
+                ).fetchone()
+                known_remote = any(str(row[key] or "").strip() for key in
+                                   ("youtube_video_id", "youtube_url"))
+                if ledger:
+                    known_remote = known_remote or any(
+                        str(ledger[key] or "").strip() for key in
+                        ("youtube_video_id", "youtube_url")
+                    )
+                # An uncertain job with any recorded remote identity or a
+                # completed ledger cannot be restarted as a new upload.
+                if uncertain and (known_remote or
+                                  (ledger and str(ledger["state"] or "").upper()
+                                   in {"COMPLETED", "REMOTE_CREATED"})):
+                    blocked += 1
+                    continue
+                if uncertain and not resumable:
+                    warning = (
+                        "Resumed by owner from an uncertain upload. No durable "
+                        "checkpoint was saved; restarting from zero may duplicate "
+                        "a remote upload that finished before the interruption."
+                    )
+                    conn.execute(
+                        """UPDATE videos SET status='QUEUED', recovery_state='NONE',
+                           progress=0, error_message=?, claim_worker_id=NULL,
+                           claimed_at=NULL, lease_expires_at=NULL, resumable_uri=NULL,
+                           resumable_file_size=NULL, resumable_file_mtime_ns=NULL,
+                           upload_bytes_confirmed=0, media_stage_state='PENDING',
+                           pipeline_stage='PENDING', updated_at=CURRENT_TIMESTAMP
+                           WHERE id=? AND status='PAUSED'""",
+                        (warning, video_id),
+                    )
+                    self._set_ledger_state(conn, video_id, "RESERVED", last_error="")
+                    conn.execute(
+                        "INSERT INTO upload_logs(video_id, level, message, progress) "
+                        "VALUES (?, 'WARNING', ?, 0)", (video_id, warning)
+                    )
+                    fresh += 1
+                else:
+                    conn.execute(
+                        """UPDATE videos SET status='QUEUED',
+                           recovery_state=CASE WHEN ? THEN 'AUTO_RESUME'
+                                               ELSE recovery_state END,
+                           claim_worker_id=NULL, claimed_at=NULL,
+                           lease_expires_at=NULL, updated_at=CURRENT_TIMESTAMP
+                           WHERE id=? AND status='PAUSED'""",
+                        (int(uncertain), video_id),
+                    )
+                    self._set_ledger_state(
+                        conn, video_id, "RESUMABLE" if resumable else "RESERVED",
+                    )
+                resumed += 1
+        return resumed, fresh, blocked
+
     def resolve_recovery_review(self, video_ids: Iterable[int]) -> int:
         """User-confirmed escape hatch after checking YouTube Studio."""
 

@@ -170,15 +170,15 @@ class ScopeTests(unittest.TestCase):
             "require_csrf":lambda *args:None,"require_heavy":lambda *args:None,
             "_short_owned_queue_jobs":lambda req,statuses=None:jobs,
             "_short_owner_start_scoped":lambda req,pids:calls.append(("scope",set(pids))),
-            "db":SimpleNamespace(resume_paused=lambda **kw:(calls.append(("resume",kw)) or 1)),
+            "db":SimpleNamespace(resume_paused_shortstudio=lambda ids:
+                                 (calls.append(("resume",ids)) or (1,0,0))),
             "redirect":lambda path,**kw:(path,kw),
         })["auto_v6_resume_paused"]
         result=fn(object(),"token")
-        self.assertEqual(calls[0],("scope",{10}))
-        self.assertEqual(calls[1],("resume",{"auto_engine_only":True,"video_ids":[123]}))
-        self.assertIn("Resumed 1 safe owned",result[1]["message"])
+        self.assertEqual(calls,[("scope",{10}),("resume",[123])])
+        self.assertIn("Resumed 1 owned paused",result[1]["message"])
 
-    def test_review_required_is_never_silently_resumed(self):
+    def test_review_required_resumes_with_one_click_and_explicit_fresh_warning(self):
         calls=[]
         jobs=[{"id":201,"auto_engine_profile_id":10,"status":"PAUSED",
                "recovery_state":"REVIEW_REQUIRED"}]
@@ -186,16 +186,17 @@ class ScopeTests(unittest.TestCase):
             "current_user":lambda req:{"username":"alice","is_admin":False},
             "require_csrf":lambda *args:None,"require_heavy":lambda *args:None,
             "_short_owned_queue_jobs":lambda req,statuses=None:jobs,
-            "_short_owner_start_scoped":lambda *args:calls.append("scope"),
-            "db":SimpleNamespace(resume_paused=lambda **kw:calls.append("resume")),
+            "_short_owner_start_scoped":lambda req,pids:calls.append(("scope",set(pids))),
+            "db":SimpleNamespace(resume_paused_shortstudio=lambda ids:
+                                 (calls.append(("resume",ids)) or (1,1,0))),
             "redirect":lambda path,**kw:(path,kw),
         })["auto_v6_resume_paused"]
         result=fn(object(),"token")
-        self.assertIn("incomplete remote upload evidence",result[1]["error"])
-        self.assertIn("1 have incomplete remote upload evidence",result[1]["error"])
-        self.assertEqual(calls,[])
+        self.assertEqual(calls,[("scope",{10}),("resume",[201])])
+        self.assertIn("Resumed 1 owned paused",result[1]["message"])
+        self.assertIn("may be duplicated",result[1]["message"])
 
-    def test_mixed_safe_review_and_missing_legacy_state_resume_only_safe(self):
+    def test_mixed_safe_review_and_missing_state_all_in_one_click_scope(self):
         calls=[]
         jobs=[
             {"id":101,"auto_engine_profile_id":10,"status":"PAUSED","recovery_state":"NONE"},
@@ -207,28 +208,28 @@ class ScopeTests(unittest.TestCase):
             "require_csrf":lambda *args:None,"require_heavy":lambda *args:None,
             "_short_owned_queue_jobs":lambda req,statuses=None:jobs,
             "_short_owner_start_scoped":lambda req,ids:calls.append(("scope",set(ids))),
-            "db":SimpleNamespace(resume_paused=lambda **kw:(calls.append(("resume",kw)) or 1)),
+            "db":SimpleNamespace(resume_paused_shortstudio=lambda ids:
+                                 (calls.append(("resume",ids)) or (3,2,0))),
             "redirect":lambda path,**kw:(path,kw),
         })["auto_v6_resume_paused"]
         result=fn(object(),"token")
-        self.assertEqual(calls,[("scope",{10}),
-            ("resume",{"auto_engine_only":True,"video_ids":[101]})])
-        self.assertIn("Resumed 1 safe",result[1]["message"])
-        self.assertIn("1 have incomplete remote upload evidence",result[1]["message"])
-        self.assertIn("1 have unclassified",result[1]["message"])
+        self.assertEqual(calls,[("scope",{10}),("resume",[101,202,303])])
+        self.assertIn("Resumed 3 owned paused",result[1]["message"])
+        self.assertIn("2 restarted from zero",result[1]["message"])
 
-    def test_unknown_legacy_state_never_auto_retries(self):
+    def test_unknown_legacy_state_one_click_resumes_with_warning(self):
         jobs=[{"id":101,"auto_engine_profile_id":10,"status":"PAUSED","recovery_state":None}]
         fn=extracted(WEB,["auto_v6_resume_paused"],{
             "current_user":lambda req:{"username":"alice","is_admin":False},
             "require_csrf":lambda *args:None,"require_heavy":lambda *args:None,
             "_short_owned_queue_jobs":lambda req,statuses=None:jobs,
-            "_short_owner_start_scoped":lambda *args:(_ for _ in ()).throw(AssertionError("no start")),
-            "db":SimpleNamespace(resume_paused=lambda **kw:(_ for _ in ()).throw(AssertionError("no resume"))),
+            "_short_owner_start_scoped":lambda req,pids:None,
+            "db":SimpleNamespace(resume_paused_shortstudio=lambda ids:(1,1,0)),
             "redirect":lambda path,**kw:(path,kw),
         })["auto_v6_resume_paused"]
         result=fn(object(),"token")
-        self.assertIn("No safely resumable",result[1]["error"])
+        self.assertIn("Resumed 1 owned paused",result[1]["message"])
+        self.assertIn("checkpoint",result[1]["message"])
 
     def test_retired_review_clear_makes_no_queue_changes_even_with_old_confirmation(self):
         calls=[]

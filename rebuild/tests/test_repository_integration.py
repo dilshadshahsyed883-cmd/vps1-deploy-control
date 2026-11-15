@@ -152,6 +152,13 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
         self.assertEqual(len(network["entries"]), 1)
         network_deltas = {entry["path"]: entry for entry in network["entries"]}
         self.assertEqual(len(network_deltas), len(network["entries"]))
+        # Append the independently reviewed one-click Short recovery source delta.
+        # Earlier historical and network-review evidence remains immutable.
+        short_resume = document("rebuild/snapshots/targeted-source-delta-short-resume-20261115.json")
+        self.assertEqual(short_resume["source"], "SHORT_STUDIO_ONE_CLICK_PAUSED_RECOVERY_20261115")
+        self.assertEqual(len(short_resume["entries"]), 1)
+        resume_deltas = {entry["path"]: entry for entry in short_resume["entries"]}
+        self.assertEqual(len(resume_deltas), len(short_resume["entries"]))
         self.assertEqual(capture["runtime_imported"], False)
         self.assertEqual(capture["source"], "AGENT1_TARGETED_LUM_DB_PYTHON")
         self.assertEqual(len(capture["modules"]), 24)
@@ -184,11 +191,18 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
                 self.assertRegex(delta["current_sha256"], HEX256)
                 self.assertEqual(expected_hash, delta["previous_sha256"], relative)
                 expected_hash = delta["current_sha256"]
+            if relative in resume_deltas:
+                delta = resume_deltas.pop(relative)
+                self.assertRegex(delta["previous_sha256"], HEX256)
+                self.assertRegex(delta["current_sha256"], HEX256)
+                self.assertEqual(expected_hash, delta["previous_sha256"], relative)
+                expected_hash = delta["current_sha256"]
             self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
                              expected_hash, relative)
         self.assertFalse(deltas, "Unrecognized targeted source delta")
         self.assertFalse(tenant_deltas, "Unrecognized tenant source delta")
         self.assertFalse(network_deltas, "Unrecognized network source delta")
+        self.assertFalse(resume_deltas, "Unrecognized Short resume source delta")
 
     def test_auto_script_source_manifest_hashes(self):
         capture = document("apps/auto-script/SOURCE_SHA256.json")
