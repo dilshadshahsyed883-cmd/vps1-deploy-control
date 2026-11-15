@@ -2568,6 +2568,9 @@ async def auto_v6_profile_schedules_save(request: Request):
 async def auto_v6_job_network_action(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        return redirect("/app?tab=auto_engine",
+            message="Old per-job network recovery controls are retired. Queue records were not changed.")
     vid=int(str(form.get("video_id") or "0"))
     action=str(form.get("action") or "").strip().lower()
     if action not in {"retry","cancel"}:
@@ -2590,7 +2593,7 @@ async def auto_v6_job_network_action(request: Request):
             except Exception as exc:
                 return redirect("/app?tab=auto_engine",error=str(exc))
     reviewed=str(row.get("recovery_state") or "").upper()=="REVIEW_REQUIRED"
-    if reviewed and os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio" and str(form.get("confirmation") or "").strip()!="NO REMOTE VIDEO":
+    if reviewed and str(form.get("confirmation") or "").strip()!="NO REMOTE VIDEO":
         return redirect("/app?tab=auto_engine",
             error=f"Job #{vid}: Check the channel in YouTube Studio and type NO REMOTE VIDEO exactly before retry or cancellation.")
     ok,message=db.resolve_waiting_network_job(vid,action,reviewed=reviewed)
