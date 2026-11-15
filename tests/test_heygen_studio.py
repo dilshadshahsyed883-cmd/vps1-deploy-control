@@ -77,6 +77,7 @@ class HeygenStudioTest(unittest.TestCase):
         self.bridge = register_heygen_studio(
             app, Jinja2Templates(directory=str(SCENE / "templates")),
             self.tmp.name, admin, login, transport=httpx.MockTransport(upstream))
+        self.addCleanup(self.bridge.outbox.close)
 
         @app.get("/_fixture/session/{role}/{owner}")
         def session(req: Request, role: str, owner: str):
@@ -187,8 +188,11 @@ class HeygenStudioTest(unittest.TestCase):
             response = self.client.post("/api/heygen-studio/config", headers=headers,
                                         json={"endpoint": endpoint, "token":"sample-secret"})
             self.assertEqual(response.status_code, 422, (endpoint, response.text))
-        self.assertEqual(self.client.post("/api/heygen-studio/jobs", headers=headers,
-                                         files=self.uploads()).status_code, 503)
+        waiting = self.client.post("/api/heygen-studio/jobs", headers=headers,
+                                   files=self.uploads())
+        self.assertEqual(waiting.status_code, 202)
+        self.assertEqual(waiting.json()["status"], "waiting_network")
+        self.assertEqual(self.client.get("/api/heygen-studio/queue").json()["state"], "running")
 
 
 if __name__ == "__main__":
