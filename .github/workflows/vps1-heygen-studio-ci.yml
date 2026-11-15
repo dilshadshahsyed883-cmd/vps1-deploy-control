@@ -1,0 +1,46 @@
+name: VPS1 HeyGen Studio Integration CI
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/heygen_studio.py'
+      - 'apps/scene-builder/part01/templates/base.html'
+      - 'apps/scene-builder/part01/templates/heygen_studio.html'
+      - 'apps/scene-builder/part01/static/heygen_studio.*'
+      - 'tests/test_heygen_studio.py'
+      - '.github/workflows/vps1-heygen-studio-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  heygen-site-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install website test-only dependencies
+        run: python -m pip install "fastapi>=0.115,<1" "httpx>=0.28,<1" "jinja2>=3.1,<4" "itsdangerous>=2.2,<3" "python-multipart>=0.0.20,<1"
+      - name: Syntax and script validation
+        run: |
+          python -m py_compile apps/scene-builder/part01/heygen_studio.py apps/scene-builder/part01/app.py tests/test_heygen_studio.py
+          node --check apps/scene-builder/part01/static/heygen_studio.js
+      - name: Bridge, security and website tests
+        run: python -m unittest tests.test_heygen_studio -v
+      - name: Verify separate GPU repository boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          base=Path("apps/scene-builder/part01/templates/base.html").read_text()
+          app=Path("apps/scene-builder/part01/app.py").read_text()
+          assert base.count('href="/heygen-studio/"') == 1
+          assert 'register_heygen_studio' in app
+          assert 'request.url.path.startswith("/api/heygen-studio/")' in app
+          assert Path("apps/scene-builder/part01/static/heygen_studio.js").exists()
+          assert Path("apps/scene-builder/part01/templates/heygen_studio.html").exists()
+          print("VPS1_OWNS_UI=YES; HEYGEN_REPO_OWNS_GPU_IMAGE=YES")
+          PY
