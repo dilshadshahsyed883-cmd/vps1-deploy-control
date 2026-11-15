@@ -181,6 +181,35 @@ class HeygenStudioTest(unittest.TestCase):
         self.login(owner="alice")
         self.assertEqual(len(self.client.get("/api/heygen-studio/jobs").json()["items"]), 1)
 
+    def test_offline_queue_api_and_owner_isolation(self):
+        self.login(owner="alice")
+        csrf = self.token()
+        self.assertEqual(self.client.get("/api/heygen-studio/queue").json()["state"], "running")
+        paused = self.client.post("/api/heygen-studio/queue/pause", headers=csrf)
+        self.assertEqual(paused.json()["state"], "paused")
+        result = self.client.post("/api/heygen-studio/jobs", headers=csrf, files=self.uploads())
+        self.assertEqual(result.status_code, 202)
+        queued = result.json()["id"]
+        self.assertEqual(result.json()["status"], "waiting_network")
+        jobs = self.client.get("/api/heygen-studio/jobs").json()["items"]
+        self.assertEqual([row["id"] for row in jobs], [queued])
+        self.assertEqual(jobs[0]["status"], "waiting_network")
+        self.login(owner="bob")
+        bob_csrf = self.token()
+        self.assertEqual(self.client.get("/api/heygen-studio/jobs").json()["items"], [])
+        self.assertEqual(self.client.post(
+            f"/api/heygen-studio/jobs/{queued}/delete", headers=bob_csrf).status_code, 404)
+        self.login(owner="alice")
+        csrf = self.token()
+        cancelled = self.client.post(
+            f"/api/heygen-studio/jobs/{queued}/cancel", headers=csrf)
+        self.assertEqual(cancelled.json()["status"], "cancelled")
+        removed = self.client.post(
+            f"/api/heygen-studio/jobs/{queued}/delete", headers=csrf)
+        self.assertEqual(removed.status_code, 200)
+        self.assertTrue(removed.json()["deleted"])
+        self.assertEqual(self.client.get("/api/heygen-studio/jobs").json()["items"], [])
+
     def test_endpoint_restrictions_and_offline_fail_closed(self):
         self.login()
         headers = self.token()
