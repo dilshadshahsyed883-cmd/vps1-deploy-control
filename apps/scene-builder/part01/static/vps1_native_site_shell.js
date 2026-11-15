@@ -63,6 +63,7 @@
     if (/^\/(song-studio|song-maker|song-uploader)(\/|$)/.test(pathname)) return "song";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return window.location.hash === "#vs-audio" ? "song" : "voice";
     if (/^\/(experiment-studio|self-media-library|auto-script)(\/|$)/.test(pathname)) return "experiment";
+    if (/^\/(cloud-render|heygen-studio)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/(admin|storage-manager|user-management)(\/|$)/.test(pathname)) return "admin";
     if (pathname === "/" || pathname === "/dashboard") return "dashboard";
     return "";
@@ -79,10 +80,12 @@
   const EXPERIMENT_NAV = Object.freeze([
     ["Antidetect Browser", "/experiment-studio/antidetect-browser/", "antidetect"],
     ["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"],
-    ["Cloud Render", "/cloud-render/", "cloud-render"]
+    ["Cloud Render", "/cloud-render/", "cloud-render"],
+    ["HeyGen Studio", "/heygen-studio/", "heygen"]
   ]);
   const experimentSection = pathname => {
     if (/^\/cloud-render(\/|$)/.test(pathname)) return "cloud-render";
+    if (/^\/heygen-studio(\/|$)/.test(pathname)) return "heygen";
     if (/^\/(scene-builder|video-studio|auto-caption-studio|short-maker|queue|settings|audit-media)(\/|$)/.test(pathname)) return "video";
     if (/^\/(local-upload-manager|auto-stream)(\/|$)/.test(pathname)) return "upload";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return "voice";
