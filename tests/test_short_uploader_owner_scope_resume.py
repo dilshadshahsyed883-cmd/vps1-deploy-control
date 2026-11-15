@@ -258,6 +258,21 @@ class ScopeTests(unittest.TestCase):
         result=asyncio.run(fn(SimpleNamespace(form=form)))
         self.assertIn("No queue jobs changed",result[1]["error"])
 
+    def test_retired_network_action_never_executes_when_posted_from_stale_short_ui(self):
+        calls=[]
+        async def form():
+            return {"csrf_token":"token","video_id":"1327","action":"retry"}
+        fn=extracted(WEB,["auto_v6_job_network_action"],{
+            "current_user":lambda req:{"username":"alice","is_admin":False},
+            "require_csrf":lambda *args:None,"require_heavy":lambda *args:None,
+            "db":SimpleNamespace(get_video=lambda *args:calls.append("read")),
+            "redirect":lambda path,**kw:(path,kw),
+        })["auto_v6_job_network_action"]
+        with patch.dict(os.environ,{"LUM_ENGINE_INSTANCE":"shortstudio"}):
+            result=asyncio.run(fn(SimpleNamespace(form=form)))
+        self.assertIn("Old per-job network recovery controls are retired",result[1]["message"])
+        self.assertEqual(calls,[])
+
     def test_worker_validates_scope_before_claiming(self):
         text=WORKER.read_text(encoding="utf-8")
         section=text[text.index('state=store.engine()',text.index('def main()')):]
