@@ -28,7 +28,11 @@ UNIT_DIR=Path('/etc/systemd/system')
 # Co-deploy the already merged Short Uploader UI (#493) and queue actions
 # (#497) alongside network fairness (#496). These are copies into only the
 # isolated Short Studio release; no Song/legacy uploader unit is touched.
-NETWORK_ONLY_FILES=FILES+('lum_engine/auto_engine_v6_scheduler.py',)
+# Package the first-tab parser and canonical Sheet bridge alongside the
+# isolated Short Uploader web, scheduler and worker. No Song/legacy files change.
+NETWORK_ONLY_FILES=FILES+('lum_engine/auto_engine_v6_scheduler.py',
+                          'lum_engine/sheets_bridge.py',
+                          'desktop_core/modules/google_sheet_sync.py')
 
 
 def require(condition, detail):
