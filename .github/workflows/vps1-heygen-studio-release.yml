@@ -1,0 +1,100 @@
+name: VPS1 HeyGen Studio guarded production release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: vps1-heygen-studio-scene-release
+  cancel-in-progress: false
+jobs:
+  heygen-scene-only:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'dilshadshahsyed883-cmd' &&
+      github.run_attempt == 1 &&
+      contains(github.event.head_commit.message, '[vps1-heygen-studio-release]')
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Join existing protected Tailscale lane
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+      - name: Install HeyGen Studio via protected Scene helper and verify
+        shell: bash
+        env:
+          PRIVATE_IDENTITY: ${{ secrets.VPS1_SSH_PRIVATE_KEY }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          set +x
+          umask 077
+          test "$GITHUB_REF" = 'refs/heads/main'
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          printf '%s\n' "$PRIVATE_IDENTITY" > "$scratch/id"
+          unset PRIVATE_IDENTITY
+          chmod 0600 "$scratch/id"
+          ssh-keygen -y -P '' -f "$scratch/id" > "$scratch/pub"
+          test "$(ssh-keygen -lf "$scratch/pub" -E sha256 | awk '{print $2}')" = \
+            'SHA256:oeX4vWPvVspKOTrvbMgUa+uWPGyXLz3531TQEy5wp1E'
+          printf '%s\n' '100.87.55.92 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGpN+j9QsIP11NqypSCoYdFZ0Bvy65j608M4EyjC+OlJ' > "$scratch/known_hosts"
+          remote() {
+            timeout 2300s ssh -T -p 22 -i "$scratch/id" \
+              -o UserKnownHostsFile="$scratch/known_hosts" \
+              -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+              -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o PasswordAuthentication=no -o ConnectTimeout=20 \
+              -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+              vps1deploy@100.87.55.92 "$@"
+          }
+          changed=0
+          rollback() {
+            code=$?
+            if (( code != 0 && changed )); then
+              echo 'HEYGEN_STUDIO=FAILED_ROLLBACK_ATTEMPT'
+              remote "sudo -n /usr/local/sbin/vps1-production-deploy rollback $SOURCE_SHA scene-builder" || true
+            fi
+            exit "$code"
+          }
+          trap rollback ERR
+          echo 'HEYGEN_SCOPE=SCENE_BUILDER_ONLY'
+          echo 'CLOUD_RENDER_AND_OTHER_STUDIOS=UNTOUCHED'
+          changed=1
+          remote "sudo -n /usr/local/sbin/vps1-production-deploy install $SOURCE_SHA scene-builder"
+          for attempt in $(seq 1 8); do
+            if curl -fsS --connect-timeout 8 --max-time 25 \
+                'https://app.scenebuilder.online/static/heygen_studio.js?v=1' \
+                -o "$scratch/heygen-studio.js" &&
+               grep -q 'hg-start-queue' "$scratch/heygen-studio.js"; then
+              break
+            fi
+            sleep 5
+          done
+          grep -q 'hg-start-queue' "$scratch/heygen-studio.js"
+          curl -fsS --connect-timeout 8 --max-time 25 \
+            'https://app.scenebuilder.online/static/heygen_studio.css?v=1' \
+            -o "$scratch/heygen-studio.css"
+          grep -q 'hg-card' "$scratch/heygen-studio.css"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+            'https://app.scenebuilder.online/heygen-studio/')"
+          [[ "$code" = '302' || "$code" = '303' || "$code" = '401' || "$code" = '403' ]]
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
+            'https://app.scenebuilder.online/api/heygen-studio/queue')"
+          [[ "$code" = '302' || "$code" = '303' || "$code" = '401' || "$code" = '403' ]]
+          echo 'HEYGEN_PUBLIC_ASSETS=PASS'
+          echo 'HEYGEN_UNAUTHENTICATED_ACCESS=BLOCKED'
+          echo 'HEYGEN_GPU_RENDER=NOT_YET_TESTED'
+          echo 'HEYGEN_AUTHENTICATED_UAT=PENDING'
+          echo 'OTHER_APP_INSTALLS=NONE'
+          trap - ERR
+          echo 'HEYGEN_STUDIO_RELEASE=PASS'
