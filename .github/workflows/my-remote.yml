@@ -52,6 +52,48 @@ jobs:
           dotnet run --configuration Release --project apps/my-remote/tests/MyRemote.Integration.csproj
           echo 'Smoke and authenticated WebSocket integration checks passed.'
 
+  linux-relay:
+    name: Publish standalone Linux x64 relay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish self-contained executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish apps/my-remote/server/MyRemote.Server.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o dist/my-remote-linux
+          chmod +x dist/my-remote-linux/MyRemote.Server
+          test -s dist/my-remote-linux/wwwroot/index.html
+          cp apps/my-remote/deploy/my-remote.service.template dist/my-remote-linux/
+          cp apps/my-remote/deploy/nginx-vhost.template dist/my-remote-linux/
+          cp apps/my-remote/deploy/README-ISOLATED.md dist/my-remote-linux/
+          (cd dist/my-remote-linux && sha256sum MyRemote.Server > SHA256SUMS.txt)
+      - name: Test standalone executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          export REMOTE_BROWSER_PASSWORD="$(openssl rand -hex 24)"
+          export REMOTE_AGENT_TOKEN="$(openssl rand -hex 32)"
+          export REMOTE_PUBLIC_ORIGIN="https://remote.example.test"
+          export ASPNETCORE_URLS="http://127.0.0.1:5123"
+          (cd dist/my-remote-linux && ./MyRemote.Server >/tmp/my-remote-standalone.log 2>&1) &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for n in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5123/healthz >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:5123/healthz
+          dotnet run --configuration Release --project apps/my-remote/tests/MyRemote.Integration.csproj
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MyRemote-Linux-x64
+          path: dist/my-remote-linux/
+          retention-days: 14
+
   windows-agent:
     name: Build portable Windows agent
     runs-on: windows-latest
