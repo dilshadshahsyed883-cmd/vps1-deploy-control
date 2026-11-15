@@ -83,7 +83,8 @@ def owned_sheet_fresh(db: Any, owner_username: str, *, minutes: int = 17) -> boo
         return True  # Manual-only installs remain functional.
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
     for src in sources:
-        if not str(src["last_sync_status"] or "").startswith("OWNED_SYNC:"):
+        if not (str(src["last_sync_status"] or "").startswith("OWNED_SYNC:") and
+                "master=1" in str(src["last_sync_status"] or "")):
             return False
         stamp = str(src["last_sync_at"] or "").strip()
         try:
