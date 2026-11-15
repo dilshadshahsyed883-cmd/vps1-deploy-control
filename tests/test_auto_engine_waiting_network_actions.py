@@ -244,7 +244,7 @@ class WaitingNetworkQueueActions(unittest.TestCase):
         self.assertIn("lum-ae-network-actions", src)
         self.assertIn('name="action" value="retry"', src)
         self.assertIn('name="action" value="cancel"', src)
-        self.assertIn("if (q.status or '')|upper == 'WAITING_NETWORK'", src)
+        self.assertIn("engine_instance != 'shortstudio' and (q.status or '')|upper == 'WAITING_NETWORK'", src)
         self.assertLess(src.index("lum-ae-network-actions"), src.index("{% if q.channel_job %}"))
         Environment().parse(src)
 
