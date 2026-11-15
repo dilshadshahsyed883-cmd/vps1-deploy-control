@@ -230,48 +230,33 @@ class ScopeTests(unittest.TestCase):
         result=fn(object(),"token")
         self.assertIn("No safely resumable",result[1]["error"])
 
-    def test_recovery_confirmation_scopes_only_selected_review_jobs(self):
-        calls=[]
-        class Conn:
-            def __enter__(self):return self
-            def __exit__(self,*args):return False
-            def execute(self,*args):calls.append("source update")
-        async def form():
-            return {"csrf_token":"token","confirmation":"I CHECKED YOUTUBE"}
-        jobs=[{"id":201,"auto_engine_profile_id":10,"status":"PAUSED",
-               "recovery_state":"REVIEW_REQUIRED"}]
-        fn=extracted(WEB,["auto_v6_recovery_clear"],{
-            "current_user":lambda req:{"username":"alice","is_admin":False},
-            "require_csrf":lambda *args:None,"require_heavy":lambda *args:None,
-            "_v6_selected_ids":lambda f:[201],
-            "_short_owned_queue_jobs":lambda req,ids,statuses=None:jobs,
-            "_short_owner_start_scoped":lambda req,ids:calls.append(("scope",set(ids))),
-            "db":SimpleNamespace(resolve_recovery_review=lambda ids:(calls.append(("review",ids)) or 1)),
-            "v6_store":SimpleNamespace(job_source=lambda vid:None,connect=lambda:Conn()),
-            "redirect":lambda path,**kw:(path,kw),
-        })["auto_v6_recovery_clear"]
-        result=asyncio.run(fn(SimpleNamespace(form=form)))
-        self.assertEqual(calls[0],("scope",{10}))
-        self.assertEqual(calls[1],("review",[201]))
-        self.assertIn("cleared for 1",result[1]["message"])
-
-    def test_review_clear_rejects_non_review_paused_selection(self):
+    def test_retired_review_clear_makes_no_queue_changes_even_with_old_confirmation(self):
         calls=[]
         async def form():
             return {"csrf_token":"token","confirmation":"I CHECKED YOUTUBE"}
         fn=extracted(WEB,["auto_v6_recovery_clear"],{
             "current_user":lambda req:{"username":"alice","is_admin":False},
             "require_csrf":lambda *args:None,"require_heavy":lambda *args:None,
-            "_v6_selected_ids":lambda f:[101],
-            "_short_owned_queue_jobs":lambda req,ids,statuses=None:[{"id":101,
-                         "auto_engine_profile_id":10,"status":"PAUSED","recovery_state":"NONE"}],
+            "_v6_selected_ids":lambda f:(calls.append("selected") or [201]),
+            "_short_owned_queue_jobs":lambda *args:(_ for _ in ()).throw(AssertionError("must not inspect jobs")),
             "_short_owner_start_scoped":lambda *args:calls.append("scope"),
             "db":SimpleNamespace(resolve_recovery_review=lambda ids:calls.append("review")),
             "redirect":lambda path,**kw:(path,kw),
         })["auto_v6_recovery_clear"]
         result=asyncio.run(fn(SimpleNamespace(form=form)))
-        self.assertIn("Only your REVIEW_REQUIRED",result[1]["error"])
+        self.assertIn("review controls were removed",result[1]["error"])
         self.assertEqual(calls,[])
+
+    def test_retired_review_clear_rejects_legacy_post_without_confirmation(self):
+        async def form():
+            return {"csrf_token":"token"}
+        fn=extracted(WEB,["auto_v6_recovery_clear"],{
+            "current_user":lambda req:{"username":"alice","is_admin":False},
+            "require_csrf":lambda *args:None,"require_heavy":lambda *args:None,
+            "redirect":lambda path,**kw:(path,kw),
+        })["auto_v6_recovery_clear"]
+        result=asyncio.run(fn(SimpleNamespace(form=form)))
+        self.assertIn("No queue jobs changed",result[1]["error"])
 
     def test_worker_validates_scope_before_claiming(self):
         text=WORKER.read_text(encoding="utf-8")
