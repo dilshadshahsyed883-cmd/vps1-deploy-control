@@ -145,6 +145,13 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
         self.assertEqual(len(tenant["entries"]), 1)
         tenant_deltas = {entry["path"]: entry for entry in tenant["entries"]}
         self.assertEqual(len(tenant_deltas), len(tenant["entries"]))
+        # Append-only 15 Nov reviewed WAITING_NETWORK change; preserve the
+        # historical Agent1 and 31 Oct tenant snapshots as signed-off evidence.
+        network = document("rebuild/snapshots/targeted-source-delta-network-review-20261115.json")
+        self.assertEqual(network["source"], "SHORT_WAITING_NETWORK_REVIEWED_RECOVERY_20261115")
+        self.assertEqual(len(network["entries"]), 1)
+        network_deltas = {entry["path"]: entry for entry in network["entries"]}
+        self.assertEqual(len(network_deltas), len(network["entries"]))
         self.assertEqual(capture["runtime_imported"], False)
         self.assertEqual(capture["source"], "AGENT1_TARGETED_LUM_DB_PYTHON")
         self.assertEqual(len(capture["modules"]), 24)
@@ -171,10 +178,17 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
                 self.assertRegex(delta["current_sha256"], HEX256)
                 self.assertEqual(expected_hash, delta["previous_sha256"], relative)
                 expected_hash = delta["current_sha256"]
+            if relative in network_deltas:
+                delta = network_deltas.pop(relative)
+                self.assertRegex(delta["previous_sha256"], HEX256)
+                self.assertRegex(delta["current_sha256"], HEX256)
+                self.assertEqual(expected_hash, delta["previous_sha256"], relative)
+                expected_hash = delta["current_sha256"]
             self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
                              expected_hash, relative)
         self.assertFalse(deltas, "Unrecognized targeted source delta")
         self.assertFalse(tenant_deltas, "Unrecognized tenant source delta")
+        self.assertFalse(network_deltas, "Unrecognized network source delta")
 
     def test_auto_script_source_manifest_hashes(self):
         capture = document("apps/auto-script/SOURCE_SHA256.json")

@@ -42,7 +42,8 @@ class WaitingNetworkQueueActions(unittest.TestCase):
                 CREATE TABLE videos(
                     id INTEGER PRIMARY KEY,auto_engine_profile_id INTEGER,status TEXT,
                     claim_worker_id TEXT,recovery_state TEXT,youtube_video_id TEXT,youtube_url TEXT,
-                    resumable_uri TEXT,media_stage_state TEXT,pipeline_stage TEXT,
+                    resumable_uri TEXT,resumable_file_size INTEGER,resumable_file_mtime_ns INTEGER,
+                    media_stage_state TEXT,pipeline_stage TEXT,
                     upload_bytes_confirmed INTEGER,channel_db_id INTEGER,upload_fingerprint TEXT,
                     claimed_at TEXT,lease_expires_at TEXT,error_message TEXT,updated_at TEXT,progress INTEGER DEFAULT 0);
                 CREATE TABLE upload_ledger(
@@ -108,6 +109,56 @@ class WaitingNetworkQueueActions(unittest.TestCase):
         self.assertFalse(self.obj.resolve_waiting_network_job(1, "retry")[0])
         self.assertFalse(self.obj.resolve_waiting_network_job(1, "cancel")[0])
 
+    def test_reviewed_ambiguous_wait_can_retry_without_erasing_other_jobs(self):
+        with self.connect() as conn:
+            conn.execute("UPDATE videos SET recovery_state='REVIEW_REQUIRED',"
+                         "media_stage_state='RUNNING',pipeline_stage='MEDIA',"
+                         "upload_bytes_confirmed=72,resumable_uri='session',progress=65 WHERE id=1")
+            conn.execute("UPDATE upload_ledger SET state='AMBIGUOUS' WHERE video_id=1")
+        self.assertFalse(self.obj.resolve_waiting_network_job(1, "retry")[0])
+        ok, message = self.obj.resolve_waiting_network_job(1, "retry", reviewed=True)
+        self.assertTrue(ok, message)
+        row = self.row()
+        self.assertEqual(row["status"], "QUEUED")
+        self.assertEqual(row["recovery_state"], "NONE")
+        self.assertEqual(row["progress"], 0)
+        self.assertEqual(row["upload_bytes_confirmed"], 0)
+        self.assertIsNone(row["resumable_uri"])
+        self.assertEqual(row["media_stage_state"], "PENDING")
+        with self.connect() as conn:
+            self.assertEqual(conn.execute("SELECT state FROM upload_ledger").fetchone()[0], "RESERVED")
+
+    def test_reviewed_ambiguous_wait_can_cancel_without_deleting_source(self):
+        with self.connect() as conn:
+            conn.execute("UPDATE videos SET recovery_state='REVIEW_REQUIRED',"
+                         "media_stage_state='RUNNING',pipeline_stage='MEDIA',"
+                         "upload_bytes_confirmed=72 WHERE id=1")
+            conn.execute("UPDATE upload_ledger SET state='AMBIGUOUS' WHERE video_id=1")
+        ok, message = self.obj.resolve_waiting_network_job(1, "cancel", reviewed=True)
+        self.assertTrue(ok, message)
+        self.assertIsNone(self.row())
+        with self.connect() as conn:
+            self.assertEqual(conn.execute("SELECT state FROM upload_ledger").fetchone()[0], "CANCELLED")
+
+    def test_review_cannot_override_known_remote_or_completed_ledger(self):
+        with self.connect() as conn:
+            conn.execute("UPDATE videos SET recovery_state='REVIEW_REQUIRED',youtube_video_id='youtube123' WHERE id=1")
+        for action in ("retry", "cancel"):
+            self.assertFalse(self.obj.resolve_waiting_network_job(1, action, reviewed=True)[0])
+        with self.connect() as conn:
+            conn.execute("UPDATE videos SET youtube_video_id=NULL WHERE id=1")
+            conn.execute("UPDATE upload_ledger SET state='COMPLETED' WHERE video_id=1")
+        for action in ("retry", "cancel"):
+            self.assertFalse(self.obj.resolve_waiting_network_job(1, action, reviewed=True)[0])
+        self.assertEqual(self.row()["status"], "WAITING_NETWORK")
+
+    def test_review_must_not_operate_on_active_or_unflagged_job(self):
+        self.assertFalse(self.obj.resolve_waiting_network_job(1, "retry", reviewed=True)[0])
+        with self.connect() as conn:
+            conn.execute("UPDATE videos SET recovery_state='REVIEW_REQUIRED',claim_worker_id='worker123' WHERE id=1")
+        self.assertFalse(self.obj.resolve_waiting_network_job(1, "retry", reviewed=True)[0])
+        self.assertEqual(self.row()["status"], "WAITING_NETWORK")
+
     def test_guarded_deployment_allows_only_unclaimed_pre_media_network_wait(self):
         runtime = ROOT / "production/runtime.py"
         tree = ast.parse(runtime.read_text())
@@ -156,7 +207,12 @@ class WaitingNetworkQueueActions(unittest.TestCase):
         self.assertIn("panes.find(node=>node.querySelector('.lum-ae-queue'))", js)
         self.assertIn("const fresh=queueLivePanel(doc)", js)
         routes = ROUTES.read_text()
+        src = TEMPLATE.read_text()
         self.assertIn('/actions/auto-v6/job/network-action', routes)
+        self.assertIn('reviewed=reviewed', routes)
+        self.assertIn('str(form.get("confirmation") or "").strip()!="NO REMOTE VIDEO"', routes)
+        self.assertIn('Retry after review', src)
+        self.assertIn('Cancel after review', src)
         self.assertIn("_v6_profile(int(row[\"auto_engine_profile_id\"]),request)", routes)
         self.assertIn('require_csrf(request,str(form.get("csrf_token") or ""))', routes)
 
