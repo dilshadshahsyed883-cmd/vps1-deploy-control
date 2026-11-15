@@ -54,11 +54,11 @@ class ShortMakerFolderMediaDeleteTests(unittest.TestCase):
         self.assertEqual([f["name"] for f in found.json()["files"]],
                          ["another.MP4", "keep.mp4", "legacy.mp4"])
         payload = {"filenames": ["legacy.mp4", "another.MP4", "legacy.mp4"]}
-        denied = self.client.post(self.url + "/delete", headers=self.owner, json=payload)
+        denied = self.client.post(self.url, headers=self.owner, json=payload)
         self.assertEqual(denied.status_code, 409)
         self.assertTrue((self.path / "legacy.mp4").exists())
 
-        done = self.client.post(self.url + "/delete", headers=self.owner,
+        done = self.client.post(self.url, headers=self.owner,
                                 json={**payload, "confirm_delete": True})
         self.assertEqual(done.status_code, 200, done.text)
         self.assertEqual(done.json()["deleted_count"], 2)
@@ -74,11 +74,11 @@ class ShortMakerFolderMediaDeleteTests(unittest.TestCase):
     def test_owner_isolation_and_rejects_paths_or_non_mp4s(self):
         (self.path / "safe.mp4").write_bytes(b"safe")
         self.assertEqual(self.client.get(self.url, headers=self.other).status_code, 403)
-        self.assertEqual(self.client.post(self.url + "/delete", headers=self.other,
+        self.assertEqual(self.client.post(self.url, headers=self.other,
                                           json={"filenames": ["safe.mp4"], "confirm_delete": True}).status_code, 403)
         for filename in ("../safe.mp4", "dir\\safe.mp4", "safe.mp4/../safe.mp4", ".studio_owner"):
             with self.subTest(filename=filename):
-                response = self.client.post(self.url + "/delete", headers=self.owner,
+                response = self.client.post(self.url, headers=self.owner,
                     json={"filenames": [filename], "confirm_delete": True})
                 self.assertEqual(response.status_code, 400, response.text)
         self.assertTrue((self.path / "safe.mp4").is_file())
@@ -88,20 +88,28 @@ class ShortMakerFolderMediaDeleteTests(unittest.TestCase):
         (self.path / "alias.mp4").symlink_to(self.path / "real.mp4")
         found = self.client.get(self.url, headers=self.owner)
         self.assertEqual([f["name"] for f in found.json()["files"]], ["real.mp4"])
-        refused = self.client.post(self.url + "/delete", headers=self.owner,
+        refused = self.client.post(self.url, headers=self.owner,
             json={"filenames": ["real.mp4", "alias.mp4"], "confirm_delete": True})
         self.assertEqual(refused.status_code, 404)
         self.assertTrue((self.path / "real.mp4").is_file())
-        missing = self.client.post(self.url + "/delete", headers=self.owner,
+        missing = self.client.post(self.url, headers=self.owner,
             json={"filenames": ["missing.mp4"], "confirm_delete": True})
         self.assertEqual(missing.status_code, 404)
+
+    def test_legacy_delete_url_remains_compatible(self):
+        (self.path / "old-client.mp4").write_bytes(b"old")
+        response = self.client.post(self.url + "/delete", headers=self.owner,
+                                    json={"filenames": ["old-client.mp4"],
+                                          "confirm_delete": True})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse((self.path / "old-client.mp4").exists())
 
     def test_active_maker_job_does_not_block_explicit_media_deletion(self):
         (self.path / "rendered.mp4").write_bytes(b"output")
         self.maker.set_state("a" * 16, owner="alice", status="running",
                              config={"short_vps_folder": self.folder},
                              published_outputs=["rendered.mp4"])
-        deleted = self.client.post(self.url + "/delete", headers=self.owner,
+        deleted = self.client.post(self.url, headers=self.owner,
             json={"filenames": ["rendered.mp4"], "confirm_delete": True})
         self.assertEqual(deleted.status_code, 200, deleted.text)
         self.assertFalse((self.path / "rendered.mp4").exists())
@@ -115,7 +123,7 @@ class ShortMakerFolderMediaUiTests(unittest.TestCase):
                             for target in node.targets))
         for fragment in ("Manage media", "Select all (", "Delete selected (",
                          "WARNING: Permanently delete", "confirm_delete:true",
-                         "/media/delete", "/media',{cache:'no-store'}",
+                         "/media',{cache:'no-store'}", "method:'POST'",
                          "inventory.append(row,mediaRow)", "await loadOwnerFolderNames();"):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, html)
