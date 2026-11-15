@@ -33,6 +33,9 @@ def _check_endpoint(endpoint: str) -> str:
         return ""
     parsed = urlsplit(value)
     hosts = {h.strip().lower() for h in os.getenv("HEYGEN_WORKER_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    # Only the user-approved SaladCloud hostname; arbitrary salad.cloud
+    # subdomains remain blocked unless separately configured in the VPS allowlist.
+    hosts.add("tangelo-taco-eq6z0bazejc7gmng.salad.cloud")
     env_endpoint = os.getenv("HEYGEN_WORKER_URL", "").strip().rstrip("/")
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username or
             parsed.password or parsed.path or parsed.query or parsed.fragment or
@@ -283,19 +286,19 @@ class HeygenBridge:
         })
 
 
-def register_heygen_studio(app, templates, root, require_admin, require_login, transport=None):
+def register_heygen_studio(app, templates, root, require_owner_access, require_login, transport=None):
     bridge = HeygenBridge(Path(root), transport=transport)
 
-    def admin(req: Request):
+    def owner_access(req: Request):
         require_login(req)
-        require_admin(req)
+        require_owner_access(req)
         owner = str(req.session.get("username") or "")
         if not owner:
             raise HTTPException(401, "Session owner required")
         return owner
 
     def csrf(req: Request):
-        owner = admin(req)
+        owner = owner_access(req)
         expected = str(req.session.get("heygen_csrf") or "")
         received = str(req.headers.get("X-Heygen-CSRF") or "")
         if not expected or not hmac.compare_digest(expected, received):
@@ -304,7 +307,7 @@ def register_heygen_studio(app, templates, root, require_admin, require_login, t
 
     @app.get("/heygen-studio/", response_class=HTMLResponse)
     def home(request: Request):
-        admin(request)
+        owner_access(request)
         if not request.session.get("heygen_csrf"):
             request.session["heygen_csrf"] = secrets.token_urlsafe(32)
         return templates.TemplateResponse(request, "heygen_studio.html", {
@@ -314,7 +317,7 @@ def register_heygen_studio(app, templates, root, require_admin, require_login, t
 
     @app.get("/api/heygen-studio/config")
     def config(request: Request):
-        return bridge.config(admin(request))
+        return bridge.config(owner_access(request))
 
     @app.post("/api/heygen-studio/config")
     async def config_save(request: Request):
@@ -326,12 +329,12 @@ def register_heygen_studio(app, templates, root, require_admin, require_login, t
 
     @app.get("/api/heygen-studio/engine")
     def engine(request: Request):
-        owner = admin(request)
+        owner = owner_access(request)
         return bridge.request(owner, "GET", "api/v1/engine").json()
 
     @app.get("/api/heygen-studio/queue")
     def queue_status(request: Request):
-        return {"state": bridge.outbox.state(admin(request))}
+        return {"state": bridge.outbox.state(owner_access(request))}
 
     @app.post("/api/heygen-studio/queue/{action}")
     def queue_action(request: Request, action: str):
@@ -339,7 +342,7 @@ def register_heygen_studio(app, templates, root, require_admin, require_login, t
 
     @app.get("/api/heygen-studio/jobs")
     def jobs(request: Request):
-        return bridge.list_jobs(admin(request))
+        return bridge.list_jobs(owner_access(request))
 
     @app.post("/api/heygen-studio/jobs", status_code=202)
     def create_job(request: Request, image: UploadFile = File(...), audio: UploadFile = File(...)):
@@ -355,6 +358,6 @@ def register_heygen_studio(app, templates, root, require_admin, require_login, t
 
     @app.get("/api/heygen-studio/jobs/{job_id}/video")
     def job_video(request: Request, job_id: str, download: int = 0):
-        return bridge.video(admin(request), job_id, bool(download))
+        return bridge.video(owner_access(request), job_id, bool(download))
 
     return bridge
