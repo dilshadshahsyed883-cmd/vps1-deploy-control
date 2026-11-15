@@ -110,6 +110,21 @@ class VerifiedMedia:
         self.pool.submit(self._mirror, owner, job_id)
         return {"state": "copying"}
 
+    def _record_ready(self, owner: str, job_id: str, path: Path, size: int, digest: str):
+        info = self.validate(path)
+        with self.connection() as con:
+            found = con.execute("SELECT 1 FROM jobs WHERE owner=? AND id=?",
+                                (owner, job_id)).fetchone()
+            if not found:
+                return False
+            con.execute("""INSERT INTO heygen_media(owner,id,state,size,sha256,detail,created_at)
+                VALUES(?,?,'ready',?,?,?,?)
+                ON CONFLICT(owner,id) DO UPDATE SET
+                  state='ready',size=excluded.size,sha256=excluded.sha256,detail=excluded.detail""",
+                (owner, job_id, size, digest, json.dumps(info),
+                 datetime.now(timezone.utc).isoformat()))
+        return True
+
     def _mirror(self, owner: str, job_id: str) -> None:
         key = (owner, job_id)
         path = self.file(owner, job_id)
@@ -120,6 +135,17 @@ class VerifiedMedia:
                 fcntl.flock(handle, fcntl.LOCK_EX)
                 # Another web process may have finished the same job already.
                 if self.snapshot(owner, job_id)["state"] == "ready":
+                    return
+                # Crash between final rename and SQLite update: re-validate
+                # the immutable local MP4 instead of downloading again.
+                if path.exists():
+                    if path.is_symlink() or not path.is_file() or not 1024 <= path.stat().st_size <= MAX_MP4_BYTES:
+                        raise ValueError("Invalid existing output")
+                    digest = hashlib.sha256()
+                    with path.open("rb") as current:
+                        for data in iter(lambda: current.read(CHUNK_BYTES), b""):
+                            digest.update(data)
+                    self._record_ready(owner, job_id, path, path.stat().st_size, digest.hexdigest())
                     return
                 with self.connection() as con:
                     found = con.execute("SELECT 1 FROM jobs WHERE owner=? AND id=?",
@@ -154,18 +180,12 @@ class VerifiedMedia:
                             raise ValueError("GPU output has invalid MP4 header or is empty")
                         if header and int(header) != total:
                             raise ValueError("GPU output length mismatch")
-                info = self.validate(staging)
+                self.validate(staging)
                 # Owner-mapped output is immutable once verified.
                 if path.exists():
                     raise ValueError("Existing HeyGen output cannot be overwritten")
                 os.replace(staging, path)
-                with self.connection() as con:
-                    con.execute("""INSERT INTO heygen_media(owner,id,state,size,sha256,detail,created_at)
-                        VALUES(?,?,'ready',?,?,?,?)
-                        ON CONFLICT(owner,id) DO UPDATE SET
-                          state='ready',size=excluded.size,sha256=excluded.sha256,detail=excluded.detail""",
-                        (owner, job_id, total, sha.hexdigest(), json.dumps(info),
-                         datetime.now(timezone.utc).isoformat()))
+                self._record_ready(owner, job_id, path, total, sha.hexdigest())
         except Exception:
             # Keep the remote file for a later retry; do not leak URLs, tokens, paths or raw stderr.
             with self.connection() as con:
@@ -192,8 +212,10 @@ class VerifiedMedia:
     def delete(self, owner: str, job_id: str):
         # Caller must already have authorized owner and completed remote delete.
         path = self.file(owner, job_id)
-        if path.is_symlink():
-            raise ValueError("Unsafe MP4")
-        path.unlink(missing_ok=True)
-        with self.connection() as con:
-            con.execute("DELETE FROM heygen_media WHERE owner=? AND id=?", (owner, job_id))
+        with path.with_suffix(".lock").open("a+b") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            if path.is_symlink():
+                raise ValueError("Unsafe MP4")
+            path.unlink(missing_ok=True)
+            with self.connection() as con:
+                con.execute("DELETE FROM heygen_media WHERE owner=? AND id=?", (owner, job_id))
