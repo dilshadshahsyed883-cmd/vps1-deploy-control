@@ -240,6 +240,32 @@ class HeygenStudioTest(unittest.TestCase):
         })
         self.assertEqual(bad.status_code, 422, bad.text)
 
+    def test_candidate_guard_allows_only_exact_heygen_actions(self):
+        from precutover_policy import mutation_allowed
+
+        allowed = [
+            ("POST", "/api/heygen-studio/config"),
+            ("POST", "/api/heygen-studio/jobs"),
+            ("POST", "/api/heygen-studio/queue/start"),
+            ("POST", "/api/heygen-studio/queue/pause"),
+            ("POST", "/api/heygen-studio/queue/resume"),
+            ("POST", "/api/heygen-studio/jobs/" + "a" * 32 + "/cancel"),
+            ("POST", "/api/heygen-studio/jobs/" + "a" * 32 + "/retry"),
+            ("POST", "/api/heygen-studio/jobs/" + "a" * 32 + "/delete"),
+            ("POST", "/api/heygen-studio/jobs/" + "a" * 32 + "/save"),
+        ]
+        for method, path in allowed:
+            self.assertTrue(mutation_allowed(method, path, False), (method, path))
+        denied = [
+            ("POST", "/api/heygen-studio/admin/override"),
+            ("POST", "/api/heygen-studio/jobs/invalid-id/delete"),
+            ("POST", "/api/heygen-studio/queue/unknown"),
+            ("DELETE", "/api/heygen-studio/config"),
+            ("POST", "/api/random/studio/save"),
+        ]
+        for method, path in denied:
+            self.assertFalse(mutation_allowed(method, path, False), (method, path))
+
     def test_production_routes_use_active_owner_not_admin_gate(self):
         source = (SCENE / "app.py").read_text(encoding="utf-8")
         self.assertIn(
