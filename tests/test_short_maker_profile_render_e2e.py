@@ -35,7 +35,7 @@ class ProfileRenderedMp4Tests(unittest.TestCase):
         with patch.dict(os.environ, {
             "SHORT_MAKER_DATA": str(self.root / "data"),
             "SHORT_STUDIO_VPS_FOLDER_ROOT": str(self.root / "folders"),
-            "SHORT_MAKER_DAILY_PROFILES_ENABLED": "1",
+            # Exercise the production-default ON setting, not a test-only override.
         }):
             spec=importlib.util.spec_from_file_location(
                 "short_profile_render_"+uuid.uuid4().hex, ROOT)

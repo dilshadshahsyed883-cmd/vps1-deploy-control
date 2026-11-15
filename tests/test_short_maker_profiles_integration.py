@@ -24,6 +24,7 @@ class ShortProfileEndToEndTests(unittest.TestCase):
         with patch.dict(os.environ, {
             "SHORT_MAKER_DATA": str(root / "data"),
             "SHORT_STUDIO_VPS_FOLDER_ROOT": str(root / "folders"),
+            "SHORT_MAKER_DAILY_PROFILES_ENABLED": "0",  # explicit rollback/opt-out contract
         }):
             spec = importlib.util.spec_from_file_location("short_profile_integration_"+uuid.uuid4().hex, SOURCE)
             self.maker = importlib.util.module_from_spec(spec)
