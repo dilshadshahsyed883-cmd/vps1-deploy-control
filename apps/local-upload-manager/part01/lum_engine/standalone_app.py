@@ -2571,7 +2571,10 @@ async def auto_v6_job_network_action(request: Request):
     vid=int(str(form.get("video_id") or "0"))
     action=str(form.get("action") or "").strip().lower()
     if action not in {"retry","cancel"}:
-        return redirect("/app?tab=auto_engine",error="Unknown network queue action.")
+        return redirect("/app?tab=auto_engine",
+            error=("This old network control is no longer available. Refresh the Short Uploader queue."
+                   if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio"
+                   else "Unknown network queue action."))
     row=db.get_video(vid) if vid>0 else None
     if not row or not row.get("auto_engine_profile_id"):
         return redirect("/app?tab=auto_engine",error="Auto Engine queue job not found.")
