@@ -78,11 +78,17 @@ class HeygenBridge:
         with self.connection() as con:
             con.executescript("""
                 CREATE TABLE IF NOT EXISTS config(
-                    owner TEXT PRIMARY KEY, endpoint TEXT NOT NULL, token TEXT NOT NULL);
+                    owner TEXT PRIMARY KEY, endpoint TEXT NOT NULL, token TEXT NOT NULL,
+                    salad_api_key TEXT NOT NULL DEFAULT '');
                 CREATE TABLE IF NOT EXISTS jobs(
                     owner TEXT NOT NULL, id TEXT NOT NULL, created_at TEXT NOT NULL,
                     PRIMARY KEY(owner, id));
             """)
+        # Backward-compatible migration for existing per-owner endpoint/token records.
+        with self.connection() as con:
+            columns = {row["name"] for row in con.execute("PRAGMA table_info(config)")}
+            if "salad_api_key" not in columns:
+                con.execute("ALTER TABLE config ADD COLUMN salad_api_key TEXT NOT NULL DEFAULT ''")
         os.chmod(self.db, 0o600)
         self.media = VerifiedMedia(self.root, self.connection, self._client)
         self.outbox = HeygenOutbox(
@@ -97,32 +103,41 @@ class HeygenBridge:
 
     def config(self, owner: str, *, reveal: bool = False):
         with self.connection() as con:
-            row = con.execute("SELECT endpoint, token FROM config WHERE owner=?", (owner,)).fetchone()
+            row = con.execute("SELECT endpoint, token, salad_api_key FROM config WHERE owner=?", (owner,)).fetchone()
         endpoint = (row["endpoint"] if row and row["endpoint"] else os.getenv("HEYGEN_WORKER_URL", "").strip())
         token = (row["token"] if row and row["token"] else os.getenv("HEYGEN_WORKER_API_KEY", "").strip())
+        # The gateway key is separate from HeyGen's application Bearer token.
+        # Both secrets are returned only to the server-side HTTP client.
+        salad_key = (row["salad_api_key"] if row and row["salad_api_key"]
+                     else os.getenv("HEYGEN_SALAD_API_KEY", "").strip())
         if reveal:
-            return endpoint, token
+            return endpoint, token, salad_key
         return {"endpoint": endpoint, "has_token": bool(token),
+                "has_salad_key": bool(salad_key),
                 "image": "ghcr.io/dilshadshahsyed883-cmd/heygen:latest",
                 "configured": bool(endpoint and token)}
 
     def save(self, owner: str, payload: dict):
         endpoint = _check_endpoint(str(payload.get("endpoint") or ""))
-        _, existing_token = self.config(owner, reveal=True)
+        _, existing_token, existing_salad_key = self.config(owner, reveal=True)
         token = str(payload.get("token") or "").strip() or existing_token
-        if len(token) > 512:
-            raise HTTPException(422, "GPU token too long")
+        salad_key = str(payload.get("salad_api_key") or "").strip() or existing_salad_key
+        if len(token) > 512 or len(salad_key) > 512:
+            raise HTTPException(422, "GPU API key too long")
         with self.connection() as con:
-            con.execute("INSERT INTO config(owner,endpoint,token) VALUES(?,?,?) "
-                        "ON CONFLICT(owner) DO UPDATE SET endpoint=excluded.endpoint,token=excluded.token",
-                        (owner, endpoint, token))
+            con.execute("INSERT INTO config(owner,endpoint,token,salad_api_key) VALUES(?,?,?,?) "
+                        "ON CONFLICT(owner) DO UPDATE SET endpoint=?,token=?,salad_api_key=?",
+                        (owner, endpoint, token, salad_key, endpoint, token, salad_key))
         return self.config(owner)
 
     def _client(self, owner: str, timeout: int = 25):
-        endpoint, token = self.config(owner, reveal=True)
+        endpoint, token, salad_key = self.config(owner, reveal=True)
         if not endpoint or not token:
             raise HTTPException(503, "Configure HeyGen GPU endpoint and API token first")
-        return httpx.Client(base_url=endpoint + "/", headers={"Authorization": "Bearer " + token},
+        headers = {"Authorization": "Bearer " + token}
+        if salad_key:
+            headers["Salad-Api-Key"] = salad_key
+        return httpx.Client(base_url=endpoint + "/", headers=headers,
                             timeout=timeout, follow_redirects=False, trust_env=False,
                             transport=self.transport)
 
@@ -134,7 +149,10 @@ class HeygenBridge:
             raise HTTPException(503, "HeyGen GPU worker is unreachable") from exc
         if response.status_code >= 400:
             status = 409 if response.status_code == 409 else 502
-            raise HTTPException(status, f"GPU worker returned HTTP {response.status_code}")
+            detail = (("GPU gateway or worker returned HTTP 403: check SaladCloud API key "
+                       "and HeyGen AVATAR_API_KEY") if response.status_code == 403
+                      else f"GPU worker returned HTTP {response.status_code}")
+            raise HTTPException(status, detail)
         return response
 
     def owned(self, owner: str, job_id: str):

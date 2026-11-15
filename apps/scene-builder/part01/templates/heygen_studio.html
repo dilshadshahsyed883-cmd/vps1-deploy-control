@@ -70,6 +70,15 @@
         <input id="hg-token" type="password" autocomplete="new-password" placeholder="Leave blank to retain saved token">
         <small id="hg-token-state">Not saved</small>
       </div>
+      <div class="hg-field">
+        <label for="hg-salad-token">SaladCloud API key (protected gateway)</label>
+        <input id="hg-salad-token" type="password" autocomplete="new-password"
+               placeholder="Leave blank to retain saved SaladCloud key">
+        <small id="hg-salad-token-state">Not saved</small>
+        <small>Required when SaladCloud networking shows Authentication Required.
+          This key uses the Salad-Api-Key header; AVATAR_API_KEY remains separate.
+          Both are stored only on the VPS and are never sent to the browser again.</small>
+      </div>
       <div class="hg-actions">
         <button type="submit" class="hg-btn primary">Save GPU Configuration</button>
         <button type="button" class="hg-btn secondary" id="hg-test">Test Connection</button>
