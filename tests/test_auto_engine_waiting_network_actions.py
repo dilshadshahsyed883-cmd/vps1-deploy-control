@@ -63,6 +63,7 @@ class WaitingNetworkQueueActions(unittest.TestCase):
         def connect():
             conn = sqlite3.connect(db_path, timeout=5)
             conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys=ON")
             return conn
         self.connect = connect
         with connect() as conn:
@@ -77,7 +78,7 @@ class WaitingNetworkQueueActions(unittest.TestCase):
                 CREATE TABLE upload_ledger(
                     channel_db_id INTEGER,upload_fingerprint TEXT,state TEXT,
                     video_id INTEGER,updated_at TEXT,youtube_video_id TEXT,youtube_url TEXT);
-                CREATE TABLE upload_logs(video_id INTEGER,level TEXT,message TEXT,progress INTEGER);
+                CREATE TABLE upload_logs(video_id INTEGER REFERENCES videos(id),level TEXT,message TEXT,progress INTEGER);
                 INSERT INTO videos(id,auto_engine_profile_id,status,recovery_state,
                     media_stage_state,pipeline_stage,upload_bytes_confirmed,channel_db_id,upload_fingerprint)
                     VALUES (1,9,'WAITING_NETWORK','NONE','PENDING','PENDING',0,4,'fp-1');
@@ -123,6 +124,13 @@ class WaitingNetworkQueueActions(unittest.TestCase):
                      "CLAIMED" if claim else "RESERVED",remote)
                 )
             conn.execute("UPDATE videos SET resumable_uri='session' WHERE id=6")
+            # Reproduce production: every pending job has attached logs, with
+            # foreign_keys=ON. Parent-first deletion used to throw a SQLite error.
+            for vid in (1,2,3,4,5,6):
+                conn.execute(
+                    "INSERT INTO upload_logs(video_id,level,message,progress) "
+                    "VALUES(?, 'INFO', 'Prior queue log', 0)", (vid,)
+                )
         obj=short_delete_only()()
         obj.connect=self.connect
         self.assertEqual(obj.delete_shortstudio_queue_jobs([1,2,3,4,5,6]),(4,2))
@@ -142,6 +150,10 @@ class WaitingNetworkQueueActions(unittest.TestCase):
                 "SELECT message FROM upload_logs WHERE video_id IS NULL")]
             self.assertEqual(len(audit),4)
             self.assertTrue(all("Source media" in msg for msg in audit))
+            linked={int(row[0]) for row in conn.execute(
+                "SELECT video_id FROM upload_logs WHERE video_id IS NOT NULL")}
+            self.assertEqual(linked,{3,4})
+            self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(),[])
         self.assertEqual(obj.delete_shortstudio_queue_jobs([1,2,3,4,5,6]),(0,6))
 
     def test_one_click_short_resumes_ambiguous_and_preserves_remote_receipts(self):
