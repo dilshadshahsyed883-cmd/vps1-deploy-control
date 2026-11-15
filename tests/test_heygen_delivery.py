@@ -66,7 +66,7 @@ class VerifiedMediaTests(unittest.TestCase):
         response = self.media.response("alice", job, True)
         self.assertIsNotNone(response)
         self.assertEqual(response.filename, f"heygen-{job}.mp4")
-        self.assertEqual(response.content_disposition_type, "attachment")
+        self.assertIn("attachment", response.headers.get("content-disposition", ""))
         # A service restart can recover a completed filesystem rename without redownloading.
         with self.connection() as con:
             con.execute("DELETE FROM heygen_media WHERE owner=? AND id=?", ("alice", job))
