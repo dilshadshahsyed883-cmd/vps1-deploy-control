@@ -1,0 +1,29 @@
+# Isolated test relay only. Does NOT modify existing VPS_1 services.
+# Caution: pass a private secrets/relay.env file which is not committed to Git.
+services:
+  relay:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./secrets/relay.env
+    environment:
+      ASPNETCORE_HTTP_PORTS: "8080"
+    ports:
+      - "127.0.0.1:5123:8080"
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'dotnet --info >/dev/null || exit 1'
+      interval: 30s
+      timeout: 10s
+      retries: 3
