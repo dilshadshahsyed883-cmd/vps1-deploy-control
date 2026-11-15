@@ -171,12 +171,45 @@ class ShortSheetMasterContracts(unittest.TestCase):
         with self.store.connect() as c:
             self.assertIsNone(c.execute("SELECT last_sync_at FROM sheet_sources WHERE id=1").fetchone()[0])
 
-    def test_bad_proxy_and_invalid_status_fail_without_partial_writes(self):
-        for row in (self.sheet_row(ip="dc.decododo.com:not-a-port"),
-                    self.sheet_row(status="some-invalid-status")):
-            with self.assertRaises(ValueError):
-                self.tenant.sync_owned_sheet_rows("alice", 1, [row])
-            self.assertEqual(self.data()["proxy_port"], "10022")
+    def test_bad_proxy_still_fails_without_partial_writes(self):
+        with self.assertRaises(ValueError):
+            self.tenant.sync_owned_sheet_rows(
+                "alice", 1, [self.sheet_row(ip="dc.decododo.com:not-a-port")])
+        self.assertEqual(self.data()["proxy_port"], "10022")
+
+    def test_nonstandard_sheet_status_is_recorded_without_blocking_other_fields(self):
+        row = self.sheet_row(sr="7", status="Channel Warmup",
+                             ip="dc.decododo.com:10010", include_group=False)
+        result = self.tenant.sync_owned_sheet_rows("alice", 1, [row])
+        self.assertEqual(result["status_unmapped"], 1)
+        channel = self.data()
+        self.assertEqual(channel["proxy_port"], "10010")
+        self.assertEqual(channel["status"], "ACTIVE")  # old operational state not guessed
+        self.assertEqual(channel["sheet_status"], "Channel Warmup")
+        with self.store.connect() as conn:
+            receipt = conn.execute("SELECT last_sync_status FROM sheet_sources WHERE id=1").fetchone()[0]
+            self.assertIn("master=1", receipt)
+            self.assertIn("status_unmapped=1", receipt)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM videos").fetchone()[0], 1)
+
+    def test_nonstandard_status_on_new_row_is_not_automatically_activated(self):
+        row = self.sheet_row(channel="UCcccccccccccccccccccccc", sr="7",
+                             status="Review Later", include_group=False)
+        result = self.tenant.sync_owned_sheet_rows("alice", 1, [row])
+        self.assertEqual(result["status_unmapped"], 1)
+        with self.store.connect() as conn:
+            new = conn.execute("SELECT status,sheet_status,proxy_port FROM channels "
+                               "WHERE sheet_row_key='sr:7'").fetchone()
+            self.assertIsNotNone(new)
+            self.assertEqual(tuple(new), ("INACTIVE", "Review Later", "10010"))
+            self.assertEqual(conn.execute("SELECT status FROM videos WHERE id=7").fetchone()[0], "QUEUED")
+
+    def test_recognized_sheet_status_remains_authoritative(self):
+        for incoming,expected in (("inactive", "INACTIVE"), ("enabled", "ACTIVE"),
+                                  ("paused", "DISABLED")):
+            self.tenant.sync_owned_sheet_rows(
+                "alice", 1, [self.sheet_row(status=incoming, include_group=False)])
+            self.assertEqual(self.data()["status"], expected)
 
     def test_unassigned_legacy_group_cannot_be_claimed_from_sheet(self):
         with self.store.connect() as c:

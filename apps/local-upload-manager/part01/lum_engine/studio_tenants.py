@@ -182,6 +182,7 @@ class StudioTenants:
         seen_keys = set()
         seen_uc = set()
         group_names = {}
+        unmapped_status_keys = set()
         for raw in rows:
             key = str(getattr(raw, "key", "") or "").strip().lower()
             name = str(getattr(raw, "channel_name", "") or "").strip()
@@ -226,17 +227,23 @@ class StudioTenants:
             if "sr" in supplied:
                 fields["sheet_sr"] = str(getattr(raw, "sr", "") or "").strip()[:80]
             if "status" in supplied:
-                status = str(getattr(raw, "sheet_status", "") or "").strip().upper()
+                source_status = str(getattr(raw, "sheet_status", "") or "").strip()[:120]
+                status = source_status.upper()
                 if status:
-                    if status in {"ACTIVE", "YES", "TRUE", "ON", "1"}:
+                    if status in {"ACTIVE", "ENABLED", "YES", "TRUE", "ON", "1"}:
                         fields["status"] = "ACTIVE"
                     elif status in {"INACTIVE", "NO", "FALSE", "OFF", "0", "REMOVE", "REMOVED"}:
                         fields["status"] = "INACTIVE"
                     elif status in {"DISABLED", "PAUSED"}:
                         fields["status"] = "DISABLED"
                     else:
-                        raise ValueError(f"Invalid Sheet status in row {key}")
-                fields["sheet_status"] = status
+                        # Real-world Sheets may use Status as free-text notes.
+                        # Preserve it verbatim in sheet_status and do not infer
+                        # that a channel is ACTIVE/DISABLED from an unknown label.
+                        # Unlike ID/proxy conflicts, this cannot invalidate all
+                        # unrelated Sheet proxy and channel configuration.
+                        unmapped_status_keys.add(key)
+                fields["sheet_status"] = source_status
             if "group" in supplied:
                 names = []
                 for candidate in re.split(r"[,;|]+", str(getattr(raw, "group", "") or "")):
@@ -326,7 +333,9 @@ class StudioTenants:
                                 ",sheet_last_seen_at=CURRENT_TIMESTAMP,last_used_at=CURRENT_TIMESTAMP WHERE id=?",
                                 (*parameters, cid))
                 else:
-                    values.update(token_file_path="", status=values.get("status", "ACTIVE"))
+                    # Unknown explicit status must never activate a new channel.
+                    values.update(token_file_path="", status=values.get(
+                        "status", "INACTIVE" if key in unmapped_status_keys else "ACTIVE"))
                     names = [k for k in values if k in columns]
                     cid = int(con.execute(
                         "INSERT INTO channels (" + ",".join(names) + ",sheet_last_seen_at) VALUES (" +
@@ -354,9 +363,11 @@ class StudioTenants:
                 (source_id, *keys)).rowcount
             con.execute("""UPDATE sheet_sources SET last_sync_at=CURRENT_TIMESTAMP,
                 last_sync_status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
-                (f"OWNED_SYNC: rows={updates} hidden={removed} groups={len(group_ids)} master=1", source_id))
+                (f"OWNED_SYNC: rows={updates} hidden={removed} groups={len(group_ids)} "
+                 f"master=1 status_unmapped={len(unmapped_status_keys)}", source_id))
             return {"ok": True, "rows": updates, "updated": updates, "hidden_removed": removed,
-                    "groups_touched": len(group_ids), "source_id": source_id}
+                    "groups_touched": len(group_ids),
+                    "status_unmapped": len(unmapped_status_keys), "source_id": source_id}
 
     def delete_owned_sheet(self, username, sheet_id):
         """Detach only owned channels; do not delete media, groups or tokens."""
