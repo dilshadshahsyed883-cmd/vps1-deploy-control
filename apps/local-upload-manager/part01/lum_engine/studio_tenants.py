@@ -354,7 +354,7 @@ class StudioTenants:
                 (source_id, *keys)).rowcount
             con.execute("""UPDATE sheet_sources SET last_sync_at=CURRENT_TIMESTAMP,
                 last_sync_status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
-                (f"OWNED_SYNC: rows={updates} hidden={removed} groups={len(group_ids)}", source_id))
+                (f"OWNED_SYNC: rows={updates} hidden={removed} groups={len(group_ids)} master=1", source_id))
             return {"ok": True, "rows": updates, "updated": updates, "hidden_removed": removed,
                     "groups_touched": len(group_ids), "source_id": source_id}
 
