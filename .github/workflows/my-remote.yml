@@ -1,0 +1,70 @@
+name: My Remote MVP
+on:
+  push:
+    branches:
+      - feature/my-remote-*
+    paths:
+      - 'apps/my-remote/**'
+      - '.github/workflows/my-remote.yml'
+  pull_request:
+    paths:
+      - 'apps/my-remote/**'
+      - '.github/workflows/my-remote.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relay:
+    name: Build + smoke-test relay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build apps/my-remote/server/MyRemote.Server.csproj -c Release --nologo -warnaserror
+      - name: Secure smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          export REMOTE_BROWSER_PASSWORD="$(openssl rand -hex 24)"
+          export REMOTE_AGENT_TOKEN="$(openssl rand -hex 32)"
+          export REMOTE_PUBLIC_ORIGIN="https://remote.example.test"
+          export ASPNETCORE_URLS="http://127.0.0.1:5123"
+          dotnet run --no-build --configuration Release --project apps/my-remote/server/MyRemote.Server.csproj >/tmp/my-remote.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; cat /tmp/my-remote.log' EXIT
+          for n in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:5123/healthz >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:5123/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5123/api/status)" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5123/api/login -H 'Content-Type: application/json' --data '{"password":"wrong"}')" = "403"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5123/api/login -H 'Origin: https://remote.example.test' -H 'Content-Type: application/json' --data '{"password":"wrong"}')" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5123/api/login -H 'Origin: https://remote.example.test' -H 'Content-Type: application/json' --data "{\"password\":\"$REMOTE_BROWSER_PASSWORD\"}")" = "200"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5123/ws/agent)" = "401"
+          echo 'Smoke checks passed.'
+
+  windows-agent:
+    name: Build portable Windows agent
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish single-file x64 agent
+        shell: pwsh
+        run: |
+          dotnet publish apps/my-remote/agent/MyRemote.Agent.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o dist/my-remote-agent
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-FileHash dist/my-remote-agent/MyRemote.Agent.exe -Algorithm SHA256 | Format-List
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MyRemote-Windows-x64
+          path: dist/my-remote-agent/
+          retention-days: 14
