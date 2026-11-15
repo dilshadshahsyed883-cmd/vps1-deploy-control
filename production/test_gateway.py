@@ -128,7 +128,10 @@ class GatewayVoiceSceneSSOTests(unittest.TestCase):
              patch.object(gateway, 'verify_voice_scene_sso_ui') as verify, \
              patch.object(gateway, 'event') as event:
             gateway.verify_gateway(['voice-studio'], {'username': 'admin', 'password': 'test'})
-        verify.assert_called_once_with()
+        # Gateway verification must not fail just because the *unrelated*
+        # Scene HTTPS vhost has changed; the strict read-only Voice route
+        # verifier still proves exact snippet and live signed-session denial.
+        verify.assert_called_once_with(readonly_gateway=True)
         self.assertEqual(event.call_args.kwargs['html_ui'], 'SCENE_SSO_VERIFIED')
 
     def test_scene_verification_failure_does_not_accept_basic_401(self):
