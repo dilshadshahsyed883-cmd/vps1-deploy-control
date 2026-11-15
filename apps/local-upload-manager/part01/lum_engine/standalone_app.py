@@ -1052,6 +1052,10 @@ def channel_network(channel_id: int, request: Request, csrf_token: str = Form(..
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
         _studio_require("channel",channel_id,user)
+        if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+            channel = db.get_channel(channel_id) or {}
+            if channel.get("sheet_source_id") and int(channel.get("sheet_present") or 0):
+                raise PermissionError("This channel's proxy and browser settings are Sheet-managed. Edit Google Sheet, then Sync.")
         db.update_channel_network_profile(channel_id, browser_profile_name=profile_name, proxy_scheme=proxy_scheme, proxy_host=proxy_host, proxy_port=proxy_port, proxy_username=proxy_username, proxy_password=proxy_password)
         return redirect("/app?tab=channels", message="Channel network profile updated")
     except Exception as exc:
@@ -1399,6 +1403,10 @@ def channels_status(
     try:
         for channel_id in channel_ids:
             _studio_require("channel",channel_id,user)
+            if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+                channel = db.get_channel(channel_id) or {}
+                if channel.get("sheet_source_id") and int(channel.get("sheet_present") or 0):
+                    raise PermissionError("Sheet-managed channel status must be changed in Google Sheet and synchronized.")
         updated=set_status_bulk(db, channel_ids, status)
         return redirect("/app?tab=channels", message=f"Updated {updated} channel(s) to {str(status).upper()}.")
     except Exception as exc:
