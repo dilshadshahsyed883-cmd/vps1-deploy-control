@@ -112,7 +112,8 @@ class ShortMakerFolderMediaDeleteTests(unittest.TestCase):
                              config={"short_vps_folder": name},
                              published_outputs=["rendered.mp4"])
         url = "/api/vps-folders/" + name
-        unconfirmed = self.client.request("DELETE", url, headers=self.owner)
+        unconfirmed = self.client.request("DELETE", url, headers=self.owner,
+                                          json={"confirm_delete": False})
         self.assertEqual(unconfirmed.status_code, 409, unconfirmed.text)
         self.assertTrue(folder.exists())
         foreign = self.client.request("DELETE", url, headers=self.other,
