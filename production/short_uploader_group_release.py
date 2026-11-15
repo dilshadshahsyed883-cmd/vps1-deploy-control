@@ -58,10 +58,11 @@ def idle(*, allow_waiting_network=False):
         busy=con.execute(f"SELECT 1 FROM videos WHERE UPPER(status) IN ({statuses}) LIMIT 1").fetchone()
         require(not busy,'upload in progress')
         if allow_waiting_network:
-            # Reuse runtime's strict proof; do not interrupt a claimed
-            # network wait or an ambiguous/resumable media upload.
+            # This release preserves unclaimed, parked REVIEW_REQUIRED jobs
+            # without touching their media, progress, resumable URI, or ledger.
+            # Active worker claims and non-network uploads still block deploy.
             from production.runtime import lum_parked_network_idle
-            lum_parked_network_idle(con)
+            lum_parked_network_idle(con, allow_review_required=True)
 
 
 def verify_live(*, ui_only=False, assignment_only=False, fixed_modes_only=False, member_controls_only=False, owner_parity_only=False, vault_only=False, profile_folder_only=False, reorder_only=False, cooperation_only=False):
