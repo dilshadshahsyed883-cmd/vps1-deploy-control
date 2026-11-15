@@ -1,0 +1,12 @@
+{
+  "source": "SHORT_STUDIO_QUEUE_FOREIGN_KEY_DELETE_ORDER_20261115",
+  "scope": "Append-only correction to Short Uploader bulk removal; preserve all earlier immutable source snapshot deltas",
+  "entries": [
+    {
+      "path": "apps/local-upload-manager/part01/desktop_core/modules/db/queue_repository.py",
+      "previous_sha256": "6774311e4a1e91e7cbc0686711e60a69713016be8b6a6e0086c94dffd23c1c55",
+      "current_sha256": "9254c2724d17bb2ce6ca34a6a1ad10df1622c407b453f78ca04342acad7191a8",
+      "reason": "Delete upload_logs child rows before videos parent in one SQLite transaction with FK enforcement; keep audit logs, permanent receipts, source media and active claims unchanged."
+    }
+  ]
+}
