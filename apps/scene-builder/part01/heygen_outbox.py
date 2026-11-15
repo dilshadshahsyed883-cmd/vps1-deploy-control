@@ -152,12 +152,12 @@ class HeygenOutbox:
                     con.execute("UPDATE heygen_outbox SET state='cancelled',error='' "
                                 "WHERE owner=? AND id=?", (owner, job_id))
                     return {"id": job_id, "status": "cancelled"}
-                if action == "retry" and row["state"] in {"cancelled", "waiting_network", "waiting_upgrade"}:
+                if action == "retry" and row["state"] in {"cancelled", "waiting_network", "waiting_upgrade", "failed"}:
                     con.execute("UPDATE heygen_outbox SET state='waiting_network',error='' "
                                 "WHERE owner=? AND id=?", (owner, job_id))
                     self.start()
                     return {"id": job_id, "status": "waiting_network"}
-                if action == "delete" and row["state"] in {"cancelled", "waiting_network", "waiting_upgrade"}:
+                if action == "delete" and row["state"] in {"cancelled", "waiting_network", "waiting_upgrade", "failed"}:
                     con.execute("DELETE FROM heygen_outbox WHERE owner=? AND id=?", (owner, job_id))
                     con.execute("DELETE FROM jobs WHERE owner=? AND id=?", (owner, job_id))
                     # Remote was never positively acknowledged; any ambiguous
@@ -272,7 +272,13 @@ class HeygenOutbox:
                             }, timeout=600)
                     response.raise_for_status()
                     if response.json().get("id") != job_id:
-                        raise ValueError("GPU worker did not honor idempotent request ID")
+                        # A worker advertising idempotency but ignoring request IDs
+                        # is unsafe for automatic retries. Stop until fixed.
+                        with self.connection() as con:
+                            con.execute("UPDATE heygen_outbox SET state='failed',"
+                                        "error='GPU worker ignored request ID; auto retry stopped' "
+                                        "WHERE owner=? AND id=?", (owner, job_id))
+                        return
                 with self.connection() as con:
                     con.execute("UPDATE heygen_outbox SET state='sent',error='' "
                                 "WHERE owner=? AND id=?", (owner, job_id))
