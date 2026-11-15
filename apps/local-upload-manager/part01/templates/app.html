@@ -1557,14 +1557,18 @@
         <div class="lum-table-wrap"><table class="lum-table lum-ae-queue"><thead><tr><th>☑</th><th>Job</th><th>Video ID</th><th>Status</th><th>Channel</th><th>Video</th><th>Thumbnail</th><th>Title</th><th>Schedule</th><th>YouTube</th><th>Error / Post State</th><th>Actions</th></tr></thead><tbody>
         {% for q in ae.queue %}<tr><td><input type="checkbox" class="lum-ae-queue-select" value="{{ q.id }}"></td><td>{{ q.id }}</td><td><code>{{ q.metadata_video_key or 'Legacy' }}</code></td><td><span class="lum-state s-{{ (q.status or '')|lower }}">{{ q.status }}</span>
           {% if (q.status or '')|upper == 'WAITING_NETWORK' %}
+          {% set network_review = (q.recovery_state or '')|upper == 'REVIEW_REQUIRED' %}
+          {% if network_review %}<small>Review required: confirm this video does not exist in YouTube Studio before retry or cancellation.</small>{% endif %}
           <div class="lum-ae-network-actions" aria-label="Network recovery for job {{ q.id }}">
             <form method="post" action="{{ base_path }}/actions/auto-v6/job/network-action" data-lum-soft-form>
               <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input type="hidden" name="action" value="retry">
-              <button class="lum-button secondary tiny" type="submit">Retry</button>
+              {% if network_review %}<input name="confirmation" placeholder="NO REMOTE VIDEO" aria-label="Confirm no remote YouTube video exists for job {{ q.id }}" autocomplete="off" required>{% endif %}
+              <button class="lum-button secondary tiny" type="submit">{{ 'Retry after review' if network_review else 'Retry' }}</button>
             </form>
             <form method="post" action="{{ base_path }}/actions/auto-v6/job/network-action" data-lum-soft-form data-confirm="Cancel this WAITING_NETWORK job? Only a proven pre-upload wait can be cancelled. Source media will be retained.">
               <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input type="hidden" name="action" value="cancel">
-              <button class="lum-button danger tiny" type="submit">Cancel</button>
+              {% if network_review %}<input name="confirmation" placeholder="NO REMOTE VIDEO" aria-label="Confirm no remote YouTube video exists for job {{ q.id }}" autocomplete="off" required>{% endif %}
+              <button class="lum-button danger tiny" type="submit">{{ 'Cancel after review' if network_review else 'Cancel' }}</button>
             </form>
           </div>
           {% endif %}
@@ -1572,7 +1576,7 @@
 <form method="post" action="{{ base_path }}/actions/auto-v6/job/upload-now" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><button class="lum-button secondary tiny" type="submit">Upload Now</button></form>
 {% endif %}<details><summary>Edit</summary><form method="post" action="{{ base_path }}/actions/auto-v6/job/edit" data-lum-soft-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="video_id" value="{{ q.id }}"><input name="title" value="{{ q.title|e }}" maxlength="100" required><textarea name="description" rows="2">{{ q.description }}</textarea><button class="lum-button secondary tiny" type="submit">Save Job Only</button></form></details>{% else %}Legacy{% endif %}</td></tr>{% else %}<tr><td colspan="12"><div class="lum-empty">No Auto Engine queue rows.</div></td></tr>{% endfor %}
         </tbody></table></div>
-        {% if ae.queue|selectattr('recovery_state','equalto','REVIEW_REQUIRED')|list %}
+        {% if ae.queue|selectattr('status','equalto','PAUSED')|selectattr('recovery_state','equalto','REVIEW_REQUIRED')|list %}
         <div class="lum-ae-recovery">{% if engine_instance in ['song','shortstudio'] or user.is_admin or engine_instance not in ['song','shortstudio','copyright'] %}
 <form method="post" action="{{ base_path }}/actions/auto-v6/recovery-clear" data-lum-soft-form data-ae-queue-form><input type="hidden" name="csrf_token" value="{{ csrf }}"><label class="lum-field"><span>Recovery Review escape hatch</span><input name="confirmation" placeholder="Type I CHECKED YOUTUBE after checking Studio"></label><button class="lum-button danger" type="submit">Authorize Fresh Retry for Selected Review Jobs</button></form>
 {% endif %}</div>
