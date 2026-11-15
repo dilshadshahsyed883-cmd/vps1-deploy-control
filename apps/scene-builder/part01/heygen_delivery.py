@@ -75,13 +75,20 @@ class VerifiedMedia:
                 detail TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY(owner,id))""")
 
-    def file(self, job_id: str) -> Path:
-        if not JOB_ID.fullmatch(str(job_id)):
-            raise ValueError("Invalid job ID")
-        return self.root / (job_id + ".mp4")
+    def file(self, owner: str, job_id: str) -> Path:
+        if not JOB_ID.fullmatch(str(job_id)) or not owner:
+            raise ValueError("Invalid job ID or owner")
+        # Two independent GPU accounts can generate the same worker-side job ID.
+        # Never share a local cache namespace across owners.
+        namespace = hashlib.sha256(owner.encode("utf-8")).hexdigest()
+        folder = self.root / namespace
+        if folder.is_symlink():
+            raise ValueError("Unsafe owner media directory")
+        folder.mkdir(mode=0o700, exist_ok=True)
+        return folder / (job_id + ".mp4")
 
     def snapshot(self, owner: str, job_id: str) -> dict:
-        path = self.file(job_id)
+        path = self.file(owner, job_id)
         with self.connection() as con:
             row = con.execute("SELECT state,size,sha256,detail FROM heygen_media "
                               "WHERE owner=? AND id=?", (owner, job_id)).fetchone()
@@ -105,9 +112,9 @@ class VerifiedMedia:
 
     def _mirror(self, owner: str, job_id: str) -> None:
         key = (owner, job_id)
-        path = self.file(job_id)
-        staging = self.root / (job_id + ".part")
-        lockfile = self.root / (job_id + ".lock")
+        path = self.file(owner, job_id)
+        staging = path.with_suffix(".part")
+        lockfile = path.with_suffix(".lock")
         try:
             with lockfile.open("a+b") as handle:
                 fcntl.flock(handle, fcntl.LOCK_EX)
@@ -174,7 +181,7 @@ class VerifiedMedia:
     def response(self, owner: str, job_id: str, download: bool = False):
         if self.snapshot(owner, job_id)["state"] != "ready":
             return None
-        path = self.file(job_id)
+        path = self.file(owner, job_id)
         return FileResponse(
             path, media_type="video/mp4",
             filename=f"heygen-{job_id}.mp4",
@@ -184,7 +191,7 @@ class VerifiedMedia:
 
     def delete(self, owner: str, job_id: str):
         # Caller must already have authorized owner and completed remote delete.
-        path = self.file(job_id)
+        path = self.file(owner, job_id)
         if path.is_symlink():
             raise ValueError("Unsafe MP4")
         path.unlink(missing_ok=True)
