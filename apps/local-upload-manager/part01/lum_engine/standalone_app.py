@@ -1214,15 +1214,9 @@ def sheets_sync(
             result=web_sync_sheet_source_by_id(db,int(source_id))
         else:
             _studio_require("sheet",int(source_id),user)
-            source=db.get_sheet_source(int(source_id))
-            if not source:
-                raise ValueError("Sheet source does not exist")
-            raw=tenant_fetch_sheet_csv(source["sheet_url_or_id"],None)
-            if not raw:
-                raise ValueError("Sheet returned zero rows; no existing records changed")
-            prepared=tenant_rows_to_sheet_rows(raw,str(tenant_token_dir))
-            result=studio_tenants.sync_owned_sheet_rows(
-                user["username"],int(source_id),prepared)
+            result=web_sync_owned_sheet_source(
+                db, studio_tenants, user["username"], int(source_id),
+                fetch_rows=tenant_fetch_sheet_csv, parse_rows=tenant_rows_to_sheet_rows)
         if result.get("ok"):
             return redirect(
                 f"/app?tab=sheets&source_id={int(source_id)}",
@@ -1259,10 +1253,9 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
                 sid=int(source["id"])
                 try:
                     _studio_require("sheet",sid,user)
-                    raw=tenant_fetch_sheet_csv(source["sheet_url_or_id"],None)
-                    if not raw: raise ValueError("Sheet returned zero rows")
-                    prepared=tenant_rows_to_sheet_rows(raw,str(tenant_token_dir))
-                    outcome=studio_tenants.sync_owned_sheet_rows(user["username"],sid,prepared)
+                    outcome=web_sync_owned_sheet_source(
+                        db, studio_tenants, user["username"], sid,
+                        fetch_rows=tenant_fetch_sheet_csv, parse_rows=tenant_rows_to_sheet_rows)
                     if not outcome.get("ok"): raise ValueError(str(outcome.get("error") or "Sheet sync failed"))
                     done+=1; rows+=int(outcome.get("rows") or 0)
                 except Exception as exc:
