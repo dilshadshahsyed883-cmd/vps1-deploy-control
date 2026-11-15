@@ -40,6 +40,10 @@ class HeygenStudioTest(unittest.TestCase):
             if path == "/api/v1/engine":
                 return httpx.Response(200, json={"engine": "sadtalker", "models_ready": True,
                                                  "entrypoint_found": True})
+            if path == "/api/v1/jobs" and request.method == "GET":
+                return httpx.Response(200, json=[
+                    {"id": jid, "status": status} for jid, status in self.remote_jobs.items()
+                ])
             if path == "/api/v1/jobs" and request.method == "POST":
                 raw = request.read()
                 if b"portrait.png" not in raw or b"speech.wav" not in raw:
