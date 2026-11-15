@@ -149,6 +149,23 @@ class ShortProfileClockTests(unittest.TestCase):
         self.assertEqual(started["status"],"planned")
         self.assertEqual(len(self.bridge.submits),1)
 
+    def test_failed_start_keeps_previously_stopped_profile_stopped(self):
+        pid = self.profiles[0]["id"]
+        self.store.stop("alice", pid)
+        self.planner.verified_catalog = lambda owner, source: None
+        with self.assertRaises(HTTPException) as denied:
+            self.clock.start_profile("alice", pid)
+        self.assertEqual(denied.exception.status_code, 409)
+        self.assertEqual(self.store.get("alice", pid)["enabled"], 0)
+        self.assertEqual(self.store.history("alice", pid), [])
+
+    def test_failed_retrigger_preserves_existing_schedule(self):
+        pid = self.profiles[0]["id"]
+        self.planner.verified_catalog = lambda owner, source: None
+        with self.assertRaises(HTTPException):
+            self.clock.start_profile("alice", pid)
+        self.assertEqual(self.store.get("alice", pid)["enabled"], 1)
+
     def test_future_dates_not_burst_after_missed_days(self):
         self.clock.tick(self.at("2026-11-01T22:16:00"))
         self.bridge.submits.clear()
