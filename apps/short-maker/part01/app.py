@@ -1132,6 +1132,11 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
   border-bottom:1px solid #edf0f5;overflow-wrap:anywhere;
 }
 #foldersPanel .queue-table tbody tr:last-child td{border-bottom:0;}
+#foldersPanel .folder-media-list{display:grid;gap:0;max-height:340px;overflow-y:auto;margin-top:10px;}
+#foldersPanel .folder-media-entry{display:flex;align-items:center;gap:10px;min-width:0;padding:8px 4px;border-bottom:1px solid #edf0f5;font-size:13px;}
+#foldersPanel .folder-media-entry input[type=checkbox]{width:18px;height:18px;flex:0 0 auto;}
+#foldersPanel .folder-media-entry .folder-media-name{flex:1;min-width:0;overflow-wrap:anywhere;}
+#foldersPanel .folder-media-entry .folder-media-size{color:#667085;font-size:12px;white-space:nowrap;}
 @media(max-width:1100px){
   #foldersPanel{grid-template-columns:minmax(0,1fr);}
   #foldersPanel > .panel:last-child{grid-column:auto;}
@@ -1322,7 +1327,7 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  <section class="panel"><h2>Folders Inventory</h2>
   <div class="hint">Only folders owned by this account. Available videos must be complete verified MP4s, excluding staged/in-progress files.</div>
   <div class="queue-table-wrap"><table class="queue-table"><thead><tr><th>Folder Name</th><th>Available Videos</th><th>Linked Profiles</th><th>Delete</th></tr></thead><tbody id="foldersInventoryRows"><tr><td colspan="4">Loading owned folder names…</td></tr></tbody></table></div>
-  <div class="note">Deleting a folder and its videos requires explicit confirmation, profile dependency checks and a lock protecting active jobs. The existing empty-only delete API is not used for this workflow.</div>
+  <div class="note">Use Manage media to select and permanently delete MP4s after one warning. Folder retirement is a separate action with its existing dependency review.</div>
  </section>
 </section>
 <section id="queuePanel" hidden>
@@ -1768,6 +1773,69 @@ async function loadOwnerFolderNames(){
    const countCell=document.createElement('td');countCell.textContent=String(entry.available_videos);row.appendChild(countCell);
    const linkedCell=document.createElement('td');linkedCell.textContent='Pending uploader-profile verification';row.appendChild(linkedCell);
    const action=document.createElement('td');
+   const mediaRow=document.createElement('tr');mediaRow.hidden=true;
+   const mediaCell=document.createElement('td');mediaCell.colSpan=4;mediaRow.appendChild(mediaCell);
+   const mediaButton=document.createElement('button');mediaButton.type='button';mediaButton.className='secondary';
+   mediaButton.textContent='Manage media';
+   async function refreshFolderMedia(){
+    mediaCell.textContent='Loading media…';
+    try{
+     const response=await fetch('api/vps-folders/'+encodeURIComponent(name)+'/media',{cache:'no-store'});
+     const result=await response.json();
+     if(!response.ok)throw Error(result.detail||'Could not load folder media');
+     const files=Array.isArray(result.files)?result.files:[];
+     const toolbar=document.createElement('div');toolbar.className='queue-actions';
+     const selectLabel=document.createElement('label');
+     const selectAll=document.createElement('input');selectAll.type='checkbox';selectAll.setAttribute('aria-label','Select all videos in '+name);
+     selectLabel.append(selectAll,document.createTextNode(' Select all ('+files.length+')'));
+     const deleteSelected=document.createElement('button');deleteSelected.type='button';deleteSelected.className='danger';
+     toolbar.append(selectLabel,deleteSelected);
+     const mediaList=document.createElement('div');mediaList.className='folder-media-list';
+     const checkboxes=[];
+     for(const file of files){
+      const item=document.createElement('label');item.className='folder-media-entry';
+      const checkbox=document.createElement('input');checkbox.type='checkbox';
+      checkbox.setAttribute('aria-label','Select '+file.name);
+      const title=document.createElement('span');title.className='folder-media-name';title.textContent=file.name;
+      const size=document.createElement('span');size.className='folder-media-size';size.textContent=(file.size/1048576).toFixed(1)+' MB';
+      item.append(checkbox,title,size);mediaList.appendChild(item);
+      checkboxes.push({checkbox,name:file.name});
+     }
+     const updateSelected=()=>{
+      const selected=checkboxes.filter(item=>item.checkbox.checked).length;
+      deleteSelected.disabled=!selected;
+      deleteSelected.textContent='Delete selected ('+selected+')';
+      selectAll.checked=files.length>0 && selected===files.length;
+      selectAll.indeterminate=selected>0 && selected<files.length;
+     };
+     selectAll.addEventListener('change',()=>{for(const item of checkboxes)item.checkbox.checked=selectAll.checked;updateSelected();});
+     for(const item of checkboxes)item.checkbox.addEventListener('change',updateSelected);
+     updateSelected();
+     deleteSelected.addEventListener('click',async()=>{
+      const filenames=checkboxes.filter(item=>item.checkbox.checked).map(item=>item.name);
+      if(!filenames.length)return;
+      if(!confirm('WARNING: Permanently delete '+filenames.length+' selected MP4 file(s) from "'+name+'"? This cannot be undone.'))return;
+      deleteSelected.disabled=true;
+      try{
+       const response=await fetch('api/vps-folders/'+encodeURIComponent(name)+'/media/delete',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({filenames,confirm_delete:true})});
+       const result=await response.json();
+       if(!response.ok)throw Error(result.detail||'Media deletion failed');
+       alert('Deleted '+result.deleted_count+' MP4 file(s).');
+       await loadOwnerFolderNames();
+      }catch(error){alert('Media deletion failed: '+error.message);updateSelected();}
+     });
+     mediaCell.replaceChildren(toolbar);
+     if(files.length)mediaCell.appendChild(mediaList);
+     else{const empty=document.createElement('div');empty.className='hint';empty.textContent='No MP4 files in this folder.';mediaCell.appendChild(empty);}
+    }catch(error){mediaCell.textContent='Could not load media: '+error.message;}
+   }
+   mediaButton.addEventListener('click',async()=>{
+    mediaRow.hidden=!mediaRow.hidden;
+    mediaButton.textContent=mediaRow.hidden?'Manage media':'Hide media';
+    if(!mediaRow.hidden)await refreshFolderMedia();
+   });
    const preview=document.createElement('button');preview.type='button';preview.className='secondary';
    preview.textContent='Review dependencies';
    preview.addEventListener('click',async()=>{
@@ -1785,7 +1853,7 @@ async function loadOwnerFolderNames(){
        (report.issues||[]).join(' · ')+' · Remove links through your own profiles/jobs, then recheck.':
        (report.deletion_enabled?'No dependencies: verified unused-folder deletion available.':
         'No dependencies found; unused-folder deletion remains OFF until guarded production activation.');
-     action.replaceChildren(preview,detail);
+     action.replaceChildren(preview,mediaButton,detail);
      if(report.deletion_enabled){
        const deleteBtn=document.createElement('button');
        deleteBtn.type='button';deleteBtn.className='danger';
@@ -1808,11 +1876,11 @@ async function loadOwnerFolderNames(){
        action.appendChild(deleteBtn);
      }
     }catch(error){linkedCell.textContent='Dependency verification blocked';const detail=document.createElement('div');detail.className='hint';
-     detail.textContent=error.message;action.replaceChildren(preview,detail);}
+     detail.textContent=error.message;action.replaceChildren(preview,mediaButton,detail);}
     finally{preview.disabled=false;}
    });
-   action.appendChild(preview);
-   row.appendChild(action);inventory.appendChild(row);
+   action.append(preview,mediaButton);
+   row.appendChild(action);inventory.append(row,mediaRow);
   }
   if(!list.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=4;cell.textContent='No owner-owned VPS folders found.';row.appendChild(cell);inventory.appendChild(row);}
  }catch(e){inventory.replaceChildren();const row=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='Could not verify owner-owned VPS folders: '+e.message;row.appendChild(td);inventory.appendChild(row);}
@@ -2002,6 +2070,52 @@ def list_verified_short_folder_inventory(request: Request):
                         "linked_profiles": None, "delete_preflight_ready": False})
     return {"folders": folders, "verified_only": True,
             "profile_dependencies_checked": False}
+
+
+@app.get("/api/vps-folders/{folder_name}/media")
+def list_owned_short_folder_media(folder_name: str, request: Request):
+    """List committed MP4 files, including legacy/untracked files, in an owned folder."""
+    folder = short_folder_owned(folder_name, request)
+    files = []
+    for entry in folder.iterdir():
+        if entry.is_symlink() or not entry.is_file() or not entry.name.lower().endswith(".mp4"):
+            continue
+        try:
+            files.append({"name": entry.name, "size": entry.stat().st_size})
+        except FileNotFoundError:
+            continue
+    files.sort(key=lambda item: item["name"].casefold())
+    return {"folder": folder_name, "files": files}
+
+
+@app.post("/api/vps-folders/{folder_name}/media/delete")
+async def delete_owned_short_folder_media(folder_name: str, request: Request):
+    """Explicitly confirmed file deletion; no folder-retirement dependency gate."""
+    folder = short_folder_owned(folder_name, request)
+    try:
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid media deletion request")
+    if not isinstance(payload, dict) or payload.get("confirm_delete") is not True:
+        raise HTTPException(status_code=409, detail="Confirm permanent media deletion")
+    filenames = payload.get("filenames")
+    if not isinstance(filenames, list) or not filenames:
+        raise HTTPException(status_code=400, detail="Select at least one MP4 file")
+    unique = list(dict.fromkeys(filenames)) if all(isinstance(name, str) for name in filenames) else []
+    if not unique or any(
+        not name or name != Path(name).name or "\\" in name or "\x00" in name
+        or not name.lower().endswith(".mp4") for name in unique
+    ):
+        raise HTTPException(status_code=400, detail="Invalid MP4 filename")
+    targets = [folder / name for name in unique]
+    if any(target.is_symlink() or not target.is_file() for target in targets):
+        raise HTTPException(status_code=404, detail="Selected MP4 is no longer available; refresh media list")
+    try:
+        for target in targets:
+            target.unlink()
+    except OSError as exc:
+        raise HTTPException(status_code=409, detail="Unable to delete selected MP4: " + str(exc))
+    return {"ok": True, "folder": folder_name, "deleted_count": len(unique), "deleted": unique}
 
 
 @app.get("/api/vps-folders/{folder_name}/delete-preflight")
