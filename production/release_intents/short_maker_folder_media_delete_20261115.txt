@@ -1,0 +1,12 @@
+Short Maker Folders — selected media deletion, guarded release
+Feature PR: #734
+Feature merge: b785dd592baed958a25fc81f2f008a504e3903cb
+
+Deployment scope:
+- Install only short-maker through protected main and the existing VPS1 Short Studio release workflow.
+- Enable the already-merged owner-scoped folder media list and confirmed MP4 deletion.
+- Preserve all other owned folder files, job/profile state, upload history, Google Drive originals, and output numbering.
+- Do not change Short Uploader, Song Uploader, Song Maker, or other VPS apps.
+- Honor the existing nonterminal-job idle preflight, SHA-pinned install, health checks, and rollback.
+- Leave Auto Script OFFLINE. Do not change OAuth, credentials, or release flags.
+- Authenticated production UI confirmation remains a separate live check.
