@@ -8,6 +8,7 @@ using System.Windows.Forms;
 
 internal static class Program
 {
+    private static volatile bool streaming;
     [STAThread]
     private static async Task Main()
     {
@@ -37,23 +38,28 @@ internal static class Program
                 socket.Options.SetRequestHeader("Authorization", "Bearer " + token);
                 Console.WriteLine("Connecting...");
                 await socket.ConnectAsync(endpoint, stop.Token);
-                Console.WriteLine("Connected. Screen sharing active on the signed-in desktop.");
+                streaming = false;
+                Console.WriteLine("Connected. Waiting for an authenticated viewer.");
                 using var connection = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
                 var receiver = ReceiveControls(socket, connection.Token);
                 try
                 {
                     while (socket.State == WebSocketState.Open && !connection.IsCancellationRequested)
                     {
-                        var jpeg = CaptureJpeg();
-                        await socket.SendAsync(new ArraySegment<byte>(jpeg), WebSocketMessageType.Binary, true, connection.Token);
-                        await Task.Delay(250, connection.Token); // about 4fps; JPEG proof-of-concept
+                        if (streaming)
+                        {
+                            var jpeg = CaptureJpeg();
+                            await socket.SendAsync(new ArraySegment<byte>(jpeg), WebSocketMessageType.Binary, true, connection.Token);
+                        }
+                        await Task.Delay(250, connection.Token); // max ~4fps only while viewing
                     }
                 }
                 finally
                 {
                     connection.Cancel();
-                    try { await receiver; } catch (OperationCanceledException) { }
-                    NativeInput.ReleaseLeftButton();
+                    try { await receiver; }
+                    catch (Exception ex) when (ex is OperationCanceledException or WebSocketException or IOException) { }
+                    finally { streaming = false; NativeInput.ReleaseLeftButton(); }
                 }
             }
             catch (Exception ex) when (ex is WebSocketException or HttpRequestException or IOException
@@ -114,7 +120,13 @@ internal static class Program
             try
             {
                 using var doc = JsonDocument.Parse(ms.ToArray());
-                NativeInput.Apply(doc.RootElement);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("type", out var kind) && kind.GetString() == "stream")
+                {
+                    streaming = root.GetProperty("enabled").GetBoolean();
+                    continue;
+                }
+                NativeInput.Apply(root);
             }
             catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
             {
