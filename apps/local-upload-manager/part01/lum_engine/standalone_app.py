@@ -2688,27 +2688,26 @@ def auto_v6_resume_paused(request: Request,csrf_token: str=Form(...)):
             jobs=_short_owned_queue_jobs(request,statuses={"PAUSED"})
             if not jobs:
                 return redirect("/app?tab=auto_engine",message="No paused owned Short jobs.")
-            # The queue displays PAUSED even when crash evidence requires
-            # manual YouTube Studio review. Database.resume_paused deliberately
-            # excludes REVIEW_REQUIRED; never report success for those rows.
-            # Missing/unknown legacy recovery evidence must fail closed too.
-            safe=[j for j in jobs if str(j.get("recovery_state") or "").strip().upper() in {"NONE","AUTO_RESUME"}]
-            review=[j for j in jobs if str(j.get("recovery_state") or "").strip().upper()=="REVIEW_REQUIRED"]
-            unknown=len(jobs)-len(safe)-len(review)
-            detail=(f"{len(review)} have incomplete remote upload evidence; "
-                    f"{unknown} have unclassified legacy recovery state. "
-                    "These uncertain uploads remain parked; stored remote-ID and ledger guards are unchanged.")
-            if not safe:
+            # One click applies only to this user's owned jobs. Even when the
+            # previous remote upload is uncertain, the user explicitly chose
+            # to retry it by pressing Resume Paused. Any known remote identity
+            # or completed upload receipt still blocks a fresh restart.
+            _short_owner_start_scoped(
+                request,{int(job["auto_engine_profile_id"]) for job in jobs}
+            )
+            resumed,fresh,blocked=db.resume_paused_shortstudio(
+                [int(job["id"]) for job in jobs]
+            )
+            if not resumed:
                 return redirect("/app?tab=auto_engine",
-                    error=f"No safely resumable paused jobs. {detail}")
-            _short_owner_start_scoped(request,{int(job["auto_engine_profile_id"]) for job in safe})
-            count=db.resume_paused(auto_engine_only=True,video_ids=[int(job["id"]) for job in safe])
-            if not count:
-                return redirect("/app?tab=auto_engine",
-                    error=f"0 safe jobs resumed; queue state changed or recovery is blocked. {detail}")
-            suffix=(f" {detail}" if review or unknown else "")
+                    error=(f"0 paused Short jobs resumed; {blocked} have recorded "
+                           "remote upload evidence or an active worker."))
+            detail=(f" {fresh} restarted from zero without a saved upload checkpoint; "
+                    "an unrecorded prior upload may be duplicated." if fresh else "")
+            if blocked:
+                detail+=f" {blocked} blocked due to recorded remote evidence or active claims."
             return redirect("/app?tab=auto_engine",
-                message=f"Resumed {count} safe owned Short job(s).{suffix}")
+                message=f"Resumed {resumed} owned paused Short job(s).{detail}")
         except Exception as exc:
             return redirect("/app?tab=auto_engine",error=str(exc))
     if os.getenv("LUM_ENGINE_INSTANCE")=="song":
