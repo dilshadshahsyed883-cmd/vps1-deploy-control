@@ -175,7 +175,12 @@ static async Task<(WebSocketMessageType Type, byte[] Data)?> ReadMessage(WebSock
     while (true)
     {
         var r = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-        if (r.MessageType == WebSocketMessageType.Close) return null;
+        if (r.MessageType == WebSocketMessageType.Close)
+        {
+            if (socket.State == WebSocketState.CloseReceived)
+                await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None);
+            return null;
+        }
         if (stream.Length == 0) type = r.MessageType;
         if (r.MessageType != type || stream.Length + r.Count > limit)
             throw new InvalidDataException("Invalid/oversize WebSocket message");
