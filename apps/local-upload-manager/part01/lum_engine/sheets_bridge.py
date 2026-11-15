@@ -61,7 +61,7 @@ def sync_owned_sheet_source(db: Any, tenants: Any, username: str, source_id: int
     return tenants.sync_owned_sheet_rows(username, int(source_id), parsed)
 
 
-def owned_sheet_fresh(db: Any, *, minutes: int = 17) -> bool:
+def owned_sheet_fresh(db: Any, owner_username: str, *, minutes: int = 17) -> bool:
     """Gate NEW Short Uploader leases/queue admissions on recent clean Sheet data.
 
     No data is cleared on a network error; queued or in-flight uploads remain
@@ -69,9 +69,15 @@ def owned_sheet_fresh(db: Any, *, minutes: int = 17) -> bool:
     """
     from datetime import datetime, timedelta, timezone
 
+    owner = str(owner_username or "").strip().casefold()
+    if not owner:
+        return False
     with db.connect() as conn:
         sources = conn.execute(
-            "SELECT last_sync_at,last_sync_status FROM sheet_sources WHERE enabled=1"
+            """SELECT s.last_sync_at,s.last_sync_status FROM sheet_sources s
+               JOIN studio_entity_owners o ON o.entity_kind='sheet' AND o.entity_id=s.id
+               WHERE s.enabled=1 AND o.owner_username=? COLLATE NOCASE""",
+            (owner,),
         ).fetchall()
     if not sources:
         return True  # Manual-only installs remain functional.
