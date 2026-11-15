@@ -38,6 +38,7 @@ class VerifiedMediaTests(unittest.TestCase):
         self.network = httpx.MockTransport(transport)
         self.media = VerifiedMedia(self.base, self.connection, self.client,
                                   validate=self.validation)
+        self.addCleanup(self.media.pool.shutdown, wait=True)
 
     def connection(self):
         con = sqlite3.connect(str(self.db))
