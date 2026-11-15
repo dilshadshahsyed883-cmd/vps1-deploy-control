@@ -17,7 +17,18 @@
       headers, credentials:"same-origin"
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw Error(typeof result.detail === "string" ? result.detail : "HTTP " + response.status);
+    if (!response.ok) {
+      // Server-side middleware may return text/plain, not a JSON detail.
+      // Keep messages actionable without echoing arbitrary upstream HTML.
+      const detail = typeof result.detail === "string" ? result.detail
+        : typeof result.error === "string" ? result.error
+        : response.status === 403
+          ? "VPS denied this request (HTTP 403). Sign in with an active account and reload this page."
+          : response.status === 401
+            ? "Your session expired. Sign in again to continue."
+            : "HTTP " + response.status;
+      throw Error(detail);
+    }
     return result;
   }
   function tab(name) {
