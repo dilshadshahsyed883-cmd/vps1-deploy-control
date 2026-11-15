@@ -96,6 +96,56 @@ class ShortMakerFolderMediaDeleteTests(unittest.TestCase):
             json={"filenames": ["missing.mp4"], "confirm_delete": True})
         self.assertEqual(missing.status_code, 404)
 
+    def test_direct_folder_delete_single_warning_owner_only_without_dependency_gate(self):
+        name = "Aina Asif"
+        created = self.client.post("/api/vps-folders", headers=self.owner, json={"name": name})
+        self.assertEqual(created.status_code, 200, created.text)
+        folder = self.maker.short_vps_folder(name)
+        (folder / "rendered.mp4").write_bytes(b"video")
+        nested = folder / "nested"
+        nested.mkdir()
+        (nested / "notes.txt").write_text("media", encoding="utf-8")
+        # An owned profile/job may still reference this folder: the explicit
+        # user deletion is not blocked, and the job record is not touched.
+        job_id = "b" * 16
+        self.maker.set_state(job_id, owner="alice", status="running",
+                             config={"short_vps_folder": name},
+                             published_outputs=["rendered.mp4"])
+        url = "/api/vps-folders/" + name
+        unconfirmed = self.client.request("DELETE", url, headers=self.owner,
+                                          json={"confirm_delete": False})
+        self.assertEqual(unconfirmed.status_code, 409, unconfirmed.text)
+        self.assertTrue(folder.exists())
+        foreign = self.client.request("DELETE", url, headers=self.other,
+            json={"confirm_delete": True})
+        self.assertEqual(foreign.status_code, 403, foreign.text)
+        self.assertTrue(folder.exists())
+        # Even when the old unused-folder feature flag is active, the
+        # explicitly confirmed direct deletion is independent of that gate.
+        self.maker._sm_unused_retirement_enabled = True
+        deleted = self.client.request("DELETE", url, headers=self.owner,
+                                     json={"confirm_delete": True})
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertFalse(folder.exists())
+        self.assertEqual(self.maker.get_state(job_id)["status"], "running")
+
+    def test_direct_folder_delete_keeps_default_and_external_symlink_target(self):
+        own_default = "/api/vps-folders/" + self.folder
+        denied = self.client.request("DELETE", own_default, headers=self.owner,
+                                     json={"confirm_delete": True})
+        self.assertEqual(denied.status_code, 403, denied.text)
+        name = "My removable clips"
+        self.assertEqual(self.client.post("/api/vps-folders", headers=self.owner,
+                         json={"name": name}).status_code, 200)
+        folder = self.maker.short_vps_folder(name)
+        (folder / "link").symlink_to(self.path, target_is_directory=True)
+        (self.path / "keep.mp4").write_bytes(b"external")
+        deleted = self.client.request("DELETE", "/api/vps-folders/" + name,
+                                     headers=self.owner, json={"confirm_delete": True})
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertFalse(folder.exists())
+        self.assertTrue((self.path / "keep.mp4").is_file())
+
     def test_legacy_delete_url_remains_compatible(self):
         (self.path / "old-client.mp4").write_bytes(b"old")
         response = self.client.post(self.url + "/delete", headers=self.owner,
@@ -127,6 +177,9 @@ class ShortMakerFolderMediaUiTests(unittest.TestCase):
                          "inventory.append(row,mediaRow)", "await loadOwnerFolderNames();"):
             with self.subTest(fragment=fragment):
                 self.assertIn(fragment, html)
+        self.assertIn("deleteFolder.textContent='Delete Folder'", html)
+        self.assertNotIn("Review dependencies", html)
+        self.assertNotIn("Linked Profiles</th>", html)
 
 
 if __name__ == "__main__":
