@@ -2561,7 +2561,11 @@ async def auto_v6_job_network_action(request: Request):
                 _song_member_engine_guard()
             except Exception as exc:
                 return redirect("/app?tab=auto_engine",error=str(exc))
-    ok,message=db.resolve_waiting_network_job(vid,action)
+    reviewed=str(row.get("recovery_state") or "").upper()=="REVIEW_REQUIRED"
+    if reviewed and str(form.get("confirmation") or "").strip()!="NO REMOTE VIDEO":
+        return redirect("/app?tab=auto_engine",
+            error=f"Job #{vid}: Check the channel in YouTube Studio and type NO REMOTE VIDEO exactly before retry or cancellation.")
+    ok,message=db.resolve_waiting_network_job(vid,action,reviewed=reviewed)
     if not ok:
         return redirect("/app?tab=auto_engine",error=f"Job #{vid}: {message}")
     # Only update the mapped job, never a whole channel or unrelated queue.
