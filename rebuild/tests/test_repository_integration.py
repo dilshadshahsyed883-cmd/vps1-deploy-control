@@ -165,6 +165,12 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
         self.assertEqual(len(bulk["entries"]), 1)
         bulk_deltas = {entry["path"]: entry for entry in bulk["entries"]}
         self.assertEqual(len(bulk_deltas), len(bulk["entries"]))
+        # Enforce a new append-only proof for the FK-safe removal correction.
+        fk = document("rebuild/snapshots/targeted-source-delta-short-fk-remove-20261115.json")
+        self.assertEqual(fk["source"], "SHORT_STUDIO_QUEUE_FOREIGN_KEY_DELETE_ORDER_20261115")
+        self.assertEqual(len(fk["entries"]), 1)
+        fk_deltas = {entry["path"]: entry for entry in fk["entries"]}
+        self.assertEqual(len(fk_deltas), len(fk["entries"]))
         self.assertEqual(capture["runtime_imported"], False)
         self.assertEqual(capture["source"], "AGENT1_TARGETED_LUM_DB_PYTHON")
         self.assertEqual(len(capture["modules"]), 24)
@@ -209,6 +215,12 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
                 self.assertRegex(delta["current_sha256"], HEX256)
                 self.assertEqual(expected_hash, delta["previous_sha256"], relative)
                 expected_hash = delta["current_sha256"]
+            if relative in fk_deltas:
+                delta = fk_deltas.pop(relative)
+                self.assertRegex(delta["previous_sha256"], HEX256)
+                self.assertRegex(delta["current_sha256"], HEX256)
+                self.assertEqual(expected_hash, delta["previous_sha256"], relative)
+                expected_hash = delta["current_sha256"]
             self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
                              expected_hash, relative)
         self.assertFalse(deltas, "Unrecognized targeted source delta")
@@ -216,6 +228,7 @@ class RepositorySourceOfTruthContract(unittest.TestCase):
         self.assertFalse(network_deltas, "Unrecognized network source delta")
         self.assertFalse(resume_deltas, "Unrecognized Short resume source delta")
         self.assertFalse(bulk_deltas, "Unrecognized Short bulk-removal source delta")
+        self.assertFalse(fk_deltas, "Unrecognized Short FK-safe removal source delta")
 
     def test_auto_script_source_manifest_hashes(self):
         capture = document("apps/auto-script/SOURCE_SHA256.json")
