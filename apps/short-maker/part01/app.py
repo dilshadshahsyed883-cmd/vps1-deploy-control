@@ -1306,11 +1306,11 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
    <div class="field"><label for="shortProfileSchedule">Daily Start Time (Pakistan)</label><input id="shortProfileSchedule" type="time" value="00:00"></div>
   </div>
   <div class="note">Profile Name is suggested from the selected PC folder, remains editable, and is never silently replaced after you customize it. Source files must be uploaded and verified on VPS before unattended generation.</div>
-  <div class="queue-actions"><button type="button" id="shortProfileSave" disabled>Save Profile</button><button class="secondary" type="button" id="shortProfileSync" disabled>Import / Sync Selected PC Folder</button><button class="secondary" type="button" id="shortProfilePauseImport" disabled>Pause</button><button class="secondary" type="button" id="shortProfileResumeImport" disabled>Resume</button><button class="secondary" type="button" id="shortProfileCancelImport" disabled>Cancel</button><button class="secondary" type="button" id="shortProfileRetryImport" disabled>Retry</button><button class="secondary" type="button" id="shortProfileNew">+ New Profile</button></div><div class="hint" id="shortProfileImportStatus" role="status" aria-live="polite">Select a PC folder of voice and pictures, verify on VPS, then save. Daily generation is not activated.</div><div id="shortProfileImportProgress" class="note" role="status" aria-live="polite">No media import in progress.</div>
+  <div class="queue-actions"><button type="button" id="shortProfileSave" disabled>Save Profile</button><button class="secondary" type="button" id="shortProfileSync" disabled>Import / Sync Selected PC Folder</button><button class="secondary" type="button" id="shortProfilePauseImport" disabled>Pause</button><button class="secondary" type="button" id="shortProfileResumeImport" disabled>Resume</button><button class="secondary" type="button" id="shortProfileCancelImport" disabled>Cancel</button><button class="secondary" type="button" id="shortProfileRetryImport" disabled>Retry</button><button class="secondary" type="button" id="shortProfileNew">+ New Profile</button></div><div class="hint" id="shortProfileImportStatus" role="status" aria-live="polite">Select a PC folder of voice and pictures, verify on VPS, then save. Press Start to queue today\u0027s batch and schedule future Pakistan-time batches.</div><div id="shortProfileImportProgress" class="note" role="status" aria-live="polite">No media import in progress.</div>
  </section>
  <section class="panel"><h2>Created Short Profiles</h2>
-  <div class="hint">Saved owner-owned profiles support Edit, Stop, Delete and History. Start is locked until dedicated daily PKT worker, recovery and media-exhaustion rules pass acceptance tests. Auto Script remains OFFLINE.</div>
-  <div id="shortProfilesRows" class="note">No profile records were loaded. This feature is not activated on production.</div>
+  <div class="hint">Saved owner-owned profiles support Start, Stop, Edit, Delete and History. Start generates today\u0027s batch; future batches run at the saved Pakistan time. Each verified voice is used once per profile; shortages appear in the status. Auto Script remains OFFLINE.</div>
+  <div id="shortProfilesRows" class="note">Loading your saved Short Profiles…</div>
  </section>
 </section>
 <section id="foldersPanel" role="tabpanel" aria-labelledby="foldersTabBtn" hidden>
@@ -3017,7 +3017,7 @@ _sm_clock_spec.loader.exec_module(_sm_clock_module)
 _sm_profile_clock = _sm_clock_module.ShortProfileDailyClock(
     _sm_profile_store, _sm_profile_daily_planner, _sm_profile_queue_bridge,
     operation_guard=_sm_folder_cooperation.producer)
-_sm_clock_enabled = os.environ.get("SHORT_MAKER_DAILY_PROFILES_ENABLED", "0") == "1"
+_sm_clock_enabled = os.environ.get("SHORT_MAKER_DAILY_PROFILES_ENABLED", "1") == "1"
 
 _sm_profiles_module.register_short_profile_store(
     app, data_root=DATA_ROOT, short_identity=short_identity,
