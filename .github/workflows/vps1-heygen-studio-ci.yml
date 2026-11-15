@@ -4,10 +4,12 @@ on:
     paths:
       - 'apps/scene-builder/part01/app.py'
       - 'apps/scene-builder/part01/heygen_studio.py'
+      - 'apps/scene-builder/part01/heygen_delivery.py'
       - 'apps/scene-builder/part01/templates/base.html'
       - 'apps/scene-builder/part01/templates/heygen_studio.html'
       - 'apps/scene-builder/part01/static/heygen_studio.*'
       - 'tests/test_heygen_studio.py'
+      - 'tests/test_heygen_delivery.py'
       - 'apps/scene-builder/part01/static/vps1_native_site_shell.js'
       - 'tests/test_scene_native_sidebar_role.js'
       - 'tests/test_experiment_auto_script_navigation.py'
@@ -30,12 +32,12 @@ jobs:
         run: python -m pip install "fastapi>=0.115,<1" "httpx>=0.28,<1" "jinja2>=3.1,<4" "itsdangerous>=2.2,<3" "python-multipart>=0.0.20,<1"
       - name: Syntax and script validation
         run: |
-          python -m py_compile apps/scene-builder/part01/heygen_studio.py apps/scene-builder/part01/app.py tests/test_heygen_studio.py
+          python -m py_compile apps/scene-builder/part01/heygen_studio.py apps/scene-builder/part01/heygen_delivery.py apps/scene-builder/part01/app.py tests/test_heygen_studio.py tests/test_heygen_delivery.py
           node --check apps/scene-builder/part01/static/heygen_studio.js
           node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
       - name: Bridge, security and website tests
         run: |
-          python -m unittest tests.test_heygen_studio tests.test_experiment_auto_script_navigation production.test_unified_sidebar_navigation -v
+          python -m unittest tests.test_heygen_studio tests.test_heygen_delivery tests.test_experiment_auto_script_navigation production.test_unified_sidebar_navigation -v
           node --test tests/test_scene_native_sidebar_role.js
       - name: Verify separate GPU repository boundary
         run: |
