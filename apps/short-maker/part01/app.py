@@ -1327,8 +1327,8 @@ main>header{margin-bottom:18px!important}.brand{margin-bottom:34px!important}.si
  </section>
  <section class="panel"><h2>Folders Inventory</h2>
   <div class="hint">Only folders owned by this account. Available videos must be complete verified MP4s, excluding staged/in-progress files.</div>
-  <div class="queue-table-wrap"><table class="queue-table"><thead><tr><th>Folder Name</th><th>Available Videos</th><th>Linked Profiles</th><th>Delete</th></tr></thead><tbody id="foldersInventoryRows"><tr><td colspan="4">Loading owned folder names…</td></tr></tbody></table></div>
-  <div class="note">Use Manage media to select and permanently delete MP4s after one warning. Folder retirement is a separate action with its existing dependency review.</div>
+  <div class="queue-table-wrap"><table class="queue-table"><thead><tr><th>Folder Name</th><th>Available Videos</th><th>Actions</th></tr></thead><tbody id="foldersInventoryRows"><tr><td colspan="3">Loading owned folder names…</td></tr></tbody></table></div>
+  <div class="note">Manage media deletes selected MP4s. Delete Folder permanently removes the folder and all contents after one warning.</div>
  </section>
 </section>
 <section id="queuePanel" hidden>
@@ -1389,11 +1389,11 @@ document.getElementById('createShortFolder').onclick=async()=>{
 };
 document.getElementById('deleteShortFolder').onclick=async()=>{
  const name=shortFolderSelect.value;
- if(!name||!confirm('Delete EMPTY VPS folder '+name+'? Videos cannot be deleted here.'))return;
+ if(!name||!confirm('WARNING: Permanently delete folder "'+name+'" and ALL its files? This cannot be undone.'))return;
  try{
- const r=await fetch('api/vps-folders/'+encodeURIComponent(name),{method:'DELETE'});
+ const r=await fetch('api/vps-folders/'+encodeURIComponent(name),{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm_delete:true})});
  const data=await r.json();if(!r.ok)throw new Error(data.detail||'Delete failed');
- await loadShortFolders('Default');shortFolderMessage.textContent='Deleted empty folder '+name;
+ await loadShortFolders();await loadOwnerFolderNames();shortFolderMessage.textContent='Deleted folder '+name;
  }catch(e){shortFolderMessage.textContent='Folder error: '+e.message;}
 };
 loadShortFolders().catch(e=>{shortFolderMessage.textContent='Folder error: '+e.message;});
@@ -1772,10 +1772,9 @@ async function loadOwnerFolderNames(){
    const cell=document.createElement('td');cell.textContent=name;row.appendChild(cell);
    const entry=byName.get(name);
    const countCell=document.createElement('td');countCell.textContent=String(entry.available_videos);row.appendChild(countCell);
-   const linkedCell=document.createElement('td');linkedCell.textContent='Pending uploader-profile verification';row.appendChild(linkedCell);
    const action=document.createElement('td');
    const mediaRow=document.createElement('tr');mediaRow.hidden=true;
-   const mediaCell=document.createElement('td');mediaCell.colSpan=4;mediaRow.appendChild(mediaCell);
+   const mediaCell=document.createElement('td');mediaCell.colSpan=3;mediaRow.appendChild(mediaCell);
    const mediaButton=document.createElement('button');mediaButton.type='button';mediaButton.className='secondary';
    mediaButton.textContent='Manage media';
    async function refreshFolderMedia(){
@@ -1837,54 +1836,27 @@ async function loadOwnerFolderNames(){
     mediaButton.textContent=mediaRow.hidden?'Manage media':'Hide media';
     if(!mediaRow.hidden)await refreshFolderMedia();
    });
-   const preview=document.createElement('button');preview.type='button';preview.className='secondary';
-   preview.textContent='Review dependencies';
-   preview.addEventListener('click',async()=>{
-    preview.disabled=true;linkedCell.textContent='Checking owned profile references…';
+   const deleteFolder=document.createElement('button');deleteFolder.type='button';deleteFolder.className='danger';
+   deleteFolder.textContent='Delete Folder';
+   deleteFolder.addEventListener('click',async()=>{
+    if(!confirm('WARNING: Permanently delete folder "'+name+'" and ALL files inside it? This cannot be undone. Existing profile records and job history will remain unchanged.'))return;
+    deleteFolder.disabled=true;
     try{
-     const response=await fetch('api/vps-folders/'+encodeURIComponent(name)+'/delete-preflight',{cache:'no-store'});
-     const report=await response.json();
-     if(!response.ok)throw Error(report.detail||'Dependency verification failed');
-     const ownerLinks=[...(report.linked_short_profiles||[]).map(p=>'Maker: '+p.name),
-       ...(report.linked_profiles||[]).map(p=>'Uploader: '+p.name+(p.enabled?'':' (paused)'))];
-     linkedCell.textContent=ownerLinks.length?ownerLinks.join(' · '):
-       report.uploader_dependency_verified?'No owned profile links':'Uploader verification unavailable';
-     const detail=document.createElement('div');detail.className='hint';
-     detail.textContent=(report.issues||[]).length?
-       (report.issues||[]).join(' · ')+' · Remove links through your own profiles/jobs, then recheck.':
-       (report.deletion_enabled?'No dependencies: verified unused-folder deletion available.':
-        'No dependencies found; unused-folder deletion remains OFF until guarded production activation.');
-     action.replaceChildren(preview,mediaButton,detail);
-     if(report.deletion_enabled){
-       const deleteBtn=document.createElement('button');
-       deleteBtn.type='button';deleteBtn.className='danger';
-       deleteBtn.textContent='Delete unused folder';
-       deleteBtn.addEventListener('click',async()=>{
-         if(!confirm('Permanently delete all verified MP4s in unused folder "'+name+'"? Profile data, history and Drive originals will not be changed.'))return;
-         const exact=prompt('Type the exact VPS folder name to delete: '+name);
-         if(exact!==name){alert('Folder name confirmation did not match. Nothing deleted.');return;}
-         deleteBtn.disabled=true;
-         try{
-           const response=await fetch('api/vps-folders/'+encodeURIComponent(name)+'/retire-unused',{
-             method:'POST',headers:{'Content-Type':'application/json'},
-             body:JSON.stringify({confirm_name:exact})});
-           const result=await response.json();
-           if(!response.ok)throw Error(result.detail||'Folder deletion blocked');
-           alert('Deleted '+result.videos_deleted+' verified MP4(s). Profile links/history unchanged.');
-           await loadOwnerFolderNames();
-         }catch(error){alert('Deletion blocked: '+error.message);deleteBtn.disabled=false;}
-       });
-       action.appendChild(deleteBtn);
-     }
-    }catch(error){linkedCell.textContent='Dependency verification blocked';const detail=document.createElement('div');detail.className='hint';
-     detail.textContent=error.message;action.replaceChildren(preview,mediaButton,detail);}
-    finally{preview.disabled=false;}
+     const response=await fetch('api/vps-folders/'+encodeURIComponent(name),{
+      method:'DELETE',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({confirm_delete:true})});
+     const result=await response.json();
+     if(!response.ok)throw Error(result.detail||'Folder deletion failed');
+     await loadShortFolders();
+     await loadOwnerFolderNames();
+     alert('Deleted folder "'+name+'" and all files inside it.');
+    }catch(error){alert('Folder deletion failed: '+error.message);deleteFolder.disabled=false;}
    });
-   action.append(preview,mediaButton);
+   action.append(deleteFolder,mediaButton);
    row.appendChild(action);inventory.append(row,mediaRow);
   }
-  if(!list.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=4;cell.textContent='No owner-owned VPS folders found.';row.appendChild(cell);inventory.appendChild(row);}
- }catch(e){inventory.replaceChildren();const row=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='Could not verify owner-owned VPS folders: '+e.message;row.appendChild(td);inventory.appendChild(row);}
+  if(!list.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=3;cell.textContent='No owner-owned VPS folders found.';row.appendChild(cell);inventory.appendChild(row);}
+ }catch(e){inventory.replaceChildren();const row=document.createElement('tr'),td=document.createElement('td');td.colSpan=3;td.textContent='Could not verify owner-owned VPS folders: '+e.message;row.appendChild(td);inventory.appendChild(row);}
 }
 document.getElementById('foldersCreateVps').onclick=async()=>{
  // A cancelled/failed create must not silently switch upload destinations.
@@ -2233,36 +2205,29 @@ async def create_short_vps_folder(request: Request):
 
 
 @app.delete("/api/vps-folders/{folder_name}")
-def delete_short_vps_folder(folder_name: str, request: Request):
-    owner, _admin = short_identity(request)
-    if _sm_unused_retirement_enabled:
-        # Do not permit the historical empty-only route to bypass the
-        # new full cross-service dependency review and confirmation.
-        raise HTTPException(status_code=409,
-            detail="Use verified unused-folder review and confirmed deletion")
+async def delete_short_vps_folder(folder_name: str, request: Request):
+    """Delete only the caller's folder and its contents after explicit confirmation.
+
+    This is a direct user action: no dependency preflight, retirement flags,
+    active-job gate, or second folder-name prompt. Leave profiles/jobs/Drive alone.
+    """
+    owner, _ = short_identity(request)
+    if folder_name in (SHORT_VPS_DEFAULT, short_personal_default(owner)):
+        raise HTTPException(status_code=403, detail="Default folder cannot be deleted.")
+    folder = short_folder_owned(folder_name, request)
     try:
-        if folder_name == SHORT_VPS_DEFAULT or folder_name == short_personal_default(owner):
-            raise HTTPException(status_code=403, detail="Default folder is protected.")
-        folder = short_folder_owned(folder_name, request)
-        for state in load_job_states():
-            if (state.get("status") in ("uploading","queued","running","pausing","cancelling")
-                and (state.get("config") or {}).get("short_vps_folder") == folder_name):
-                raise HTTPException(status_code=409, detail="Folder has pending jobs.")
-        marker = folder / ".studio_owner"
-        if marker.is_symlink() or not marker.is_file():
-            raise HTTPException(status_code=403, detail="Folder ownership marker is missing.")
-        if any(entry.name != ".studio_owner" for entry in folder.iterdir()):
-            raise HTTPException(status_code=409, detail="Folder contains media or other files.")
-        marker.unlink()
-        try:
-            folder.rmdir()
-        except OSError:
-            marker.write_text(owner.casefold(), encoding="utf-8")
-            raise
-    except OSError:
-        raise HTTPException(status_code=409, detail="Folder is not empty or is in use.")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        payload = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid folder deletion request.")
+    if not isinstance(payload, dict) or payload.get("confirm_delete") is not True:
+        raise HTTPException(status_code=409, detail="Confirm permanent folder deletion.")
+    try:
+        # shutil.rmtree removes files, subfolders, and link entries without
+        # traversing directory symlinks. The owned folder itself cannot be one.
+        from starlette.concurrency import run_in_threadpool
+        await run_in_threadpool(shutil.rmtree, folder)
+    except OSError as exc:
+        raise HTTPException(status_code=409, detail="Unable to delete folder: " + str(exc))
     return {"ok": True, "name": folder_name}
 
 
