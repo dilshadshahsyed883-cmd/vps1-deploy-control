@@ -27,12 +27,14 @@ WAIT_SECONDS = 15
 
 
 class HeygenOutbox:
-    def __init__(self, root: Path, connection, client_factory, *, auto_start=True):
+    def __init__(self, root: Path, connection, client_factory, *, auto_start=True,
+                 on_complete=None, cached=None):
         self.root = Path(root) / "outbox"
         if self.root.is_symlink():
             raise RuntimeError("Unsafe HeyGen outbox")
         self.root.mkdir(mode=0o700, exist_ok=True)
         self.connection, self.client_factory = connection, client_factory
+        self.on_complete, self.cached = on_complete, cached
         self.inflight = set()
         self.guard = threading.RLock()
         self.stop_event = threading.Event()
@@ -48,7 +50,8 @@ class HeygenOutbox:
                 owner TEXT PRIMARY KEY, state TEXT NOT NULL DEFAULT 'running')""")
             # All in-flight uploads can be replayed idempotently after restart.
             con.execute("UPDATE heygen_outbox SET state='waiting_network' WHERE state='uploading'")
-            pending = bool(con.execute("SELECT 1 FROM heygen_outbox WHERE state IN ('waiting_network','waiting_upgrade') LIMIT 1").fetchone())
+            pending = bool(con.execute("SELECT 1 FROM heygen_outbox "
+                "WHERE state IN ('waiting_network','waiting_upgrade','sent') LIMIT 1").fetchone())
         if pending and auto_start:
             self.start()
 
@@ -194,6 +197,20 @@ class HeygenOutbox:
                 for row in rows:
                     if self.state(row["owner"]) == "running":
                         self.dispatch(row["owner"], row["id"])
+                if self.on_complete is not None:
+                    with self.connection() as con:
+                        sent = con.execute("SELECT owner,id FROM heygen_outbox "
+                                           "WHERE state='sent' ORDER BY created_at DESC LIMIT 50").fetchall()
+                    for row in sent:
+                        try:
+                            if self.cached is not None and self.cached(row["owner"], row["id"]):
+                                continue
+                            with self.client_factory(row["owner"], timeout=12) as client:
+                                response = client.get("api/v1/jobs/" + row["id"], timeout=12)
+                            if response.status_code == 200 and response.json().get("status") == "completed":
+                                self.on_complete(row["owner"], row["id"])
+                        except (HTTPException, httpx.HTTPError, OSError, ValueError, KeyError):
+                            pass
             except (OSError, sqlite3.Error):
                 pass
             self.stop_event.wait(WAIT_SECONDS)
