@@ -47,7 +47,8 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5123/api/login -H 'Origin: https://remote.example.test' -H 'Content-Type: application/json' --data '{"password":"wrong"}')" = "401"
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5123/api/login -H 'Origin: https://remote.example.test' -H 'Content-Type: application/json' --data "{\"password\":\"$REMOTE_BROWSER_PASSWORD\"}")" = "200"
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5123/ws/agent)" = "401"
-          echo 'Smoke checks passed.'
+          dotnet run --configuration Release --project apps/my-remote/tests/MyRemote.Integration.csproj
+          echo 'Smoke and authenticated WebSocket integration checks passed.'
 
   windows-agent:
     name: Build portable Windows agent
