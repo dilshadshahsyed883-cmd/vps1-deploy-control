@@ -81,7 +81,7 @@ class HeygenStudioTest(unittest.TestCase):
                 raise HTTPException(403, "Administrator access required")
         self.bridge = register_heygen_studio(
             app, Jinja2Templates(directory=str(SCENE / "templates")),
-            self.tmp.name, admin, login, transport=httpx.MockTransport(upstream))
+            self.tmp.name, login, login, transport=httpx.MockTransport(upstream))
         self.addCleanup(self.bridge.media.pool.shutdown, wait=True)
         self.addCleanup(self.bridge.outbox.close)
 
@@ -201,13 +201,82 @@ class HeygenStudioTest(unittest.TestCase):
                 self.assertEqual(client.headers["Authorization"], "Bearer old-avatar-key")
                 self.assertEqual(client.headers["Salad-Api-Key"], "new-gateway-key")
 
-    def test_nonadmins_and_guests_are_denied(self):
-        for role in ("guest", "member"):
-            self.login(role=role)
-            for path in ("/heygen-studio/", "/api/heygen-studio/config",
-                         "/api/heygen-studio/jobs", "/api/heygen-studio/engine"):
-                self.assertIn(self.client.get(path).status_code, (401, 403))
-            self.assertIn(self.client.post("/api/heygen-studio/config", json={}).status_code, (401, 403))
+    def test_guest_denied_but_active_member_has_owner_scoped_access(self):
+        self.login(role="guest")
+        for path in ("/heygen-studio/", "/api/heygen-studio/config",
+                     "/api/heygen-studio/jobs", "/api/heygen-studio/engine"):
+            self.assertEqual(self.client.get(path).status_code, 401)
+        self.assertEqual(self.client.post("/api/heygen-studio/config", json={}).status_code, 401)
+
+        self.login(role="member", owner="bob")
+        member_headers = self.token()
+        self.assertEqual(self.client.get("/api/heygen-studio/config").status_code, 200)
+        self.assertEqual(self.configure(member_headers).status_code, 200)
+        self.assertEqual(self.client.get("/api/heygen-studio/engine").status_code, 200)
+        self.assertEqual(self.client.get("/api/heygen-studio/jobs").json(), {"items": []})
+
+        self.login(role="admin", owner="alice")
+        self.token()
+        alice_config = self.client.get("/api/heygen-studio/config").json()
+        self.assertFalse(alice_config["has_token"])
+        self.assertFalse(alice_config["has_salad_key"])
+        self.login(role="member", owner="bob")
+        self.token()
+        bob_config = self.client.get("/api/heygen-studio/config").json()
+        self.assertTrue(bob_config["has_token"])
+        self.assertTrue(bob_config["has_salad_key"])
+
+    def test_exact_approved_salad_gateway_not_arbitrary_subdomain(self):
+        self.login(role="member")
+        headers = self.token()
+        good = self.client.post("/api/heygen-studio/config", headers=headers, json={
+            "endpoint": "https://tangelo-taco-eq6z0bazejc7gmng.salad.cloud",
+            "token": "example-test-only", "salad_api_key": "fake-gateway-token",
+        })
+        self.assertEqual(good.status_code, 200, good.text)
+        bad = self.client.post("/api/heygen-studio/config", headers=headers, json={
+            "endpoint": "https://unapproved-subdomain.salad.cloud",
+            "token": "example-test-only",
+        })
+        self.assertEqual(bad.status_code, 422, bad.text)
+
+    def test_candidate_guard_allows_only_exact_heygen_actions(self):
+        from precutover_policy import mutation_allowed
+
+        allowed = [
+            ("POST", "/api/heygen-studio/config"),
+            ("POST", "/api/heygen-studio/jobs"),
+            ("POST", "/api/heygen-studio/queue/start"),
+            ("POST", "/api/heygen-studio/queue/pause"),
+            ("POST", "/api/heygen-studio/queue/resume"),
+            ("POST", "/api/heygen-studio/jobs/" + "a" * 32 + "/cancel"),
+            ("POST", "/api/heygen-studio/jobs/" + "a" * 32 + "/retry"),
+            ("POST", "/api/heygen-studio/jobs/" + "a" * 32 + "/delete"),
+            ("POST", "/api/heygen-studio/jobs/" + "a" * 32 + "/save"),
+        ]
+        for method, path in allowed:
+            self.assertTrue(mutation_allowed(method, path, False), (method, path))
+        denied = [
+            ("POST", "/api/heygen-studio/admin/override"),
+            ("POST", "/api/heygen-studio/jobs/invalid-id/delete"),
+            ("POST", "/api/heygen-studio/queue/unknown"),
+            ("DELETE", "/api/heygen-studio/config"),
+            ("POST", "/api/random/studio/save"),
+        ]
+        for method, path in denied:
+            self.assertFalse(mutation_allowed(method, path, False), (method, path))
+
+    def test_production_routes_use_active_owner_not_admin_gate(self):
+        source = (SCENE / "app.py").read_text(encoding="utf-8")
+        self.assertIn(
+            "HEYGEN_STUDIO = register_heygen_studio(app, templates, DATA_DIR, require_login, require_login)",
+            source,
+        )
+        self.assertNotIn('request.url.path.rstrip("/") == "/heygen-studio" or', source)
+        self.assertIn(
+            "CLOUD_RENDER = register_cloud_render(app, templates, DATA_DIR, require_admin, require_login)",
+            source,
+        )
 
     def test_csrf_owner_isolation_and_format_validation(self):
         self.login(owner="alice")

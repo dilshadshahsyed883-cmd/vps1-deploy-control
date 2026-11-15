@@ -796,9 +796,9 @@ async def authentication(request: Request, call_next):
     if (request.url.path.rstrip("/") == "/cloud-render" or
             request.url.path.startswith("/api/cloud-render/")) and not account.get("is_admin"):
         return Response(status_code=403, content="Administrator access required")
-    if (request.url.path.rstrip("/") == "/heygen-studio" or
-            request.url.path.startswith("/api/heygen-studio/")) and not account.get("is_admin"):
-        return Response(status_code=403, content="Administrator access required")
+    # HeyGen is an owner-scoped Studio: the active session checked above is
+    # sufficient. Config, jobs and output remain bound to session username;
+    # do not apply the unrelated admin-only Cloud Render/Experiment policy.
     if (request.url.path == "/experiment-studio" or
             request.url.path.startswith("/experiment-studio/") or
             request.url.path.startswith("/api/experiment-browser/")) and not account.get("is_admin"):
@@ -818,7 +818,7 @@ from cloud_render import register_cloud_render
 CLOUD_RENDER = register_cloud_render(app, templates, DATA_DIR, require_admin, require_login)
 
 from heygen_studio import register_heygen_studio
-HEYGEN_STUDIO = register_heygen_studio(app, templates, DATA_DIR, require_admin, require_login)
+HEYGEN_STUDIO = register_heygen_studio(app, templates, DATA_DIR, require_login, require_login)
 
 @app.get("/api/session/identity")
 def scene_session_identity(request: Request):
