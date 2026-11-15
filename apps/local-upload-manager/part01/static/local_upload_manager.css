@@ -449,17 +449,17 @@ body.lum-embedded .lum-primary-workspaces + .lum-tabs-shell{margin-top:0}
   display:block;margin-top:6px;max-width:185px;font-size:11px;line-height:1.4;color:#8a5a10
 }
 .lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-panel{
-  box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;
+  box-sizing:border-box;display:flex;align-items:center;justify-content:flex-start;
   flex-wrap:wrap;gap:12px 20px;padding:12px 16px;border:1px solid #dfd9fb;
   border-left:4px solid #6d5ce7;border-radius:10px;background:#fff
 }
 .lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-explainer{
-  display:flex;flex:1 1 260px;flex-direction:column;gap:4px;min-width:210px;
+  display:flex;flex:0 1 270px;flex-direction:column;gap:4px;min-width:210px;
   font-size:12px;line-height:1.45;color:#556277
 }
 .lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-explainer strong{color:#27334a;font-size:12px}
 .lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-form{
-  display:flex!important;flex:1 1 530px;justify-content:flex-end;align-items:flex-end;
+  display:flex!important;flex:0 1 750px;justify-content:flex-start;align-items:flex-end;
   gap:10px;flex-wrap:wrap;margin:0!important
 }
 .lum-shell[data-engine-instance="shortstudio"] .lum-ae-review-field{
