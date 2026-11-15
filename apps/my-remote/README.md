@@ -6,7 +6,7 @@
 
 - Android-first HTTPS browser UI, home-screen manifest, password sign-in and 8-hour HttpOnly session cookie.
 - ASP.NET Core relay with two authenticated WSS endpoints, one Windows agent and one browser viewer at a time; outbound-only connection from the Windows PC.
-- Windows 10/11 x64 .NET agent: primary-screen JPEG at ~4 fps (max 1280px wide); mouse, click/drag, right/double-click, wheel, typing, basic keys.
+- Windows 10/11 x64 .NET agent: primary-screen JPEG at ~4 fps (max 1280px wide) only while a viewer is connected; mouse, click/drag, right/double-click, wheel, typing, basic keys.
 - The relay transports control packets and screen JPEGs; authentication, rate limiting, message-size limits, fixed command vocabulary, origin check and single-viewer policy are applied at the server.
 - GitHub Actions creates a self-contained portable Windows x64 agent and performs relay build + unauthenticated/login smoke checks. No automatic production deployment.
 
