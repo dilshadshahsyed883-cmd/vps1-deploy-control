@@ -67,8 +67,17 @@ class ShortProfileDailyClock:
         # Keep enable + first daily claim under one lease; otherwise an
         # exclusive retirement could detach the folder between these steps.
         with self.operation_guard():
-            self.store.enable(owner, profile_id)
-            return self._dispatch(owner, profile_id, self.now(), explicit=True)
+            # A failed source verification or renderer handoff must not leave
+            # a previously stopped profile silently running tomorrow.
+            was_enabled = bool(self.store.get(owner, profile_id)["enabled"])
+            if not was_enabled:
+                self.store.enable(owner, profile_id)
+            try:
+                return self._dispatch(owner, profile_id, self.now(), explicit=True)
+            except Exception:
+                if not was_enabled:
+                    self.store.stop(owner, profile_id)
+                raise
 
     def tick(self, when=None):
         moment = when or self.now()
