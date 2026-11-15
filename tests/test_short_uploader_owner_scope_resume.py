@@ -191,8 +191,8 @@ class ScopeTests(unittest.TestCase):
             "redirect":lambda path,**kw:(path,kw),
         })["auto_v6_resume_paused"]
         result=fn(object(),"token")
-        self.assertIn("YouTube Studio",result[1]["error"])
-        self.assertIn("1 require",result[1]["error"])
+        self.assertIn("incomplete remote upload evidence",result[1]["error"])
+        self.assertIn("1 have incomplete remote upload evidence",result[1]["error"])
         self.assertEqual(calls,[])
 
     def test_mixed_safe_review_and_missing_legacy_state_resume_only_safe(self):
@@ -214,7 +214,7 @@ class ScopeTests(unittest.TestCase):
         self.assertEqual(calls,[("scope",{10}),
             ("resume",{"auto_engine_only":True,"video_ids":[101]})])
         self.assertIn("Resumed 1 safe",result[1]["message"])
-        self.assertIn("1 require",result[1]["message"])
+        self.assertIn("1 have incomplete remote upload evidence",result[1]["message"])
         self.assertIn("1 have unclassified",result[1]["message"])
 
     def test_unknown_legacy_state_never_auto_retries(self):
