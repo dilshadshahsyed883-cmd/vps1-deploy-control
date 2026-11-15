@@ -406,9 +406,12 @@ def verify_gateway(apps, credentials, port=8888):
         except urllib.error.HTTPError as exc:
             if app != 'voice-studio' or exc.code != 401:
                 raise
-            # Never turn 401 into a bypass: prove the independent, signed
-            # Scene session on live HTTPS, native HTML, and direct API denial.
-            verify_voice_scene_sso_ui()
+            # The legacy Basic gateway is verifying an existing Voice
+            # Scene SSO route, NOT modifying the Scene HTTPS site. Reuse the
+            # strict read-only verifier: exact owner snippet and signed live
+            # session/auth probes, without rejecting unrelated vhost changes.
+            # The actual Nginx mutation path still checks full site ownership.
+            verify_voice_scene_sso_ui(readonly_gateway=True)
             event(app=app, gateway='PASS', anonymous='DENIED', html_ui='SCENE_SSO_VERIFIED')
             continue
         event(app=app, gateway='PASS', anonymous='DENIED', html_ui='PASS')
