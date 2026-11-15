@@ -10,6 +10,8 @@ from desktop_core.modules.database import Database
 from desktop_core.modules.path_utils import DB_PATH as PC_DB_PATH
 
 from .auto_engine_v6 import V6Store, generate_queue, parse_schedule_times, target_channels, channel_profile_scheduler_tick
+from .studio_tenants import StudioTenants
+from .sheets_bridge import sync_owned_sheet_source, owned_sheet_fresh
 # Shared Song/legacy worker code must not depend on a Short-only helper.
 # Only the independent Short Uploader instance participates.
 if os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio":
@@ -93,19 +95,52 @@ def check_profile(db:Database,store:V6Store,profile:dict) -> int:
     return created_total
 
 
+def refresh_owned_short_sheets(db: Database, tenants: StudioTenants) -> tuple[int, int]:
+    """Poll each enabled owned Sheet once per interval; leave failures untouched."""
+    synced = 0
+    errors = 0
+    for source in db.list_sheet_sources():
+        if not int(source.get("enabled") or 0):
+            continue
+        sid = int(source["id"])
+        owner = tenants.owner("sheet", sid)
+        if not owner:
+            continue  # Unassigned legacy sources cannot claim a workspace.
+        try:
+            sync_owned_sheet_source(db, tenants, owner, sid)
+            synced += 1
+        except Exception:
+            errors += 1  # Do not expose Sheet URLs, credentials or other tenants.
+    return synced, errors
+
+
 def main() -> None:
     db=Database(PC_DB_PATH)
     store=V6Store()
+    shortstudio = os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio"
+    tenants = StudioTenants(db) if shortstudio else None
+    next_sheet_poll = 0.0
     last_trash_day=None
     while not STOP:
         try:
             store.heartbeat("scheduler")
+            # Network fetch takes place outside the optional cooperation lock.
+            # Never hold a cross-worker lease across a slow Google CSV request.
+            if shortstudio and time.monotonic() >= next_sheet_poll:
+                next_sheet_poll = time.monotonic() + 15 * 60
+                synced, errors = refresh_owned_short_sheets(db, tenants)
+                if errors:
+                    store.heartbeat("scheduler", f"Sheet sync: {errors} source(s) unavailable; new jobs gated until a fresh sync.")
             # A scheduled profile may claim a Short Studio source or add a
             # queue job. Serialize its complete tick with a future exclusive
             # retirement. OFF by default; no schedule behavior changes.
             with uploader_shortstudio_guard():
                 if int(store.engine().get("scheduler_armed") or 0):
                     for profile in db.list_auto_engine_profiles():
+                        if shortstudio:
+                            owner = tenants.owner("profile", int(profile["id"]))
+                            if not owner or not owned_sheet_fresh(db, owner):
+                                continue
                         check_profile(db,store,profile)
                 today=datetime.now(SCHEDULE_TZ).date().isoformat()
                 if today!=last_trash_day:

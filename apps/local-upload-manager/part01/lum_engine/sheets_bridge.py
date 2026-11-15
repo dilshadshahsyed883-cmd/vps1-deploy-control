@@ -47,6 +47,72 @@ def delete_sheet_source(db: Any, source_id: int) -> None:
     db.delete_sheet_source(int(source_id))
 
 
+def sync_owned_sheet_source(
+    db: Any, tenants: Any, username: str, source_id: int, *,
+    fetch_rows=None, parse_rows=None,
+) -> Dict[str, Any]:
+    """Canonical first-tab Sheet pull for one verified owner.
+
+    One failed CSV/validation pass changes only the Sheet's failure receipt.
+    Channels and OAuth remain unchanged, and new uploads cannot use a stale
+    success receipt from before the error.
+    """
+    source = db.get_sheet_source(int(source_id))
+    if not source:
+        raise ValueError("Sheet source not found")
+    if tenants.owner("sheet", int(source_id)) != tenants.username(username):
+        raise PermissionError("Sheet source is not owned by this account")
+    try:
+        rows = (fetch_rows or fetch_sheet_csv)(source["sheet_url_or_id"], None)
+        if not rows:
+            raise ValueError("Sheet returned zero rows; no configuration changed")
+        parsed = (parse_rows or rows_to_sheet_rows)(rows, str(TOKEN_DIR))
+        return tenants.sync_owned_sheet_rows(username, int(source_id), parsed)
+    except Exception:
+        with db.connect() as conn:
+            conn.execute("""UPDATE sheet_sources
+                SET last_sync_status='SHEET_MASTER_FAILED: check source and retry',
+                    updated_at=CURRENT_TIMESTAMP WHERE id=?""", (int(source_id),))
+        raise
+
+
+def owned_sheet_fresh(db: Any, owner_username: str, *, minutes: int = 17) -> bool:
+    """Gate NEW Short Uploader leases/queue admissions on recent clean Sheet data.
+
+    No data is cleared on a network error; queued or in-flight uploads remain
+    stored, and the scheduler retries later. The grace covers one scheduler tick.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    owner = str(owner_username or "").strip().casefold()
+    if not owner:
+        return False
+    with db.connect() as conn:
+        sources = conn.execute(
+            """SELECT s.last_sync_at,s.last_sync_status FROM sheet_sources s
+               JOIN studio_entity_owners o ON o.entity_kind='sheet' AND o.entity_id=s.id
+               WHERE s.enabled=1 AND o.owner_username=? COLLATE NOCASE""",
+            (owner,),
+        ).fetchall()
+    if not sources:
+        return True  # Manual-only installs remain functional.
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    for src in sources:
+        if not (str(src["last_sync_status"] or "").startswith("OWNED_SYNC:") and
+                "master=1" in str(src["last_sync_status"] or "")):
+            return False
+        stamp = str(src["last_sync_at"] or "").strip()
+        try:
+            last = datetime.fromisoformat(stamp.replace(" ", "T"))
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return False
+        if last < cutoff:
+            return False
+    return True
+
+
 def sync_sheet_source_by_id(db: Any, source_id: int) -> Dict[str, Any]:
     source = db.get_sheet_source(int(source_id))
     if not source:

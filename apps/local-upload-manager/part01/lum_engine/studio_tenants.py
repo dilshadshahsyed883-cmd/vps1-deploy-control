@@ -168,106 +168,195 @@ class StudioTenants:
             return gid
 
     def sync_owned_sheet_rows(self, username, sheet_id, rows):
-        """Atomic tenant-safe first-tab reconciliation, no global group/token writes.
+        """One-way atomic, owner-scoped Sheet -> Short/Song configuration mirror.
 
-        Google Drive, token files and existing OAuth remain unchanged. Legacy
-        or another account's channel ID always blocks the entire transaction.
-        Groups are managed by the owner's separate group UI.
+        The Sheet controls its explicitly supplied configuration columns.
+        A row's DB identity, OAuth token, queue history and foreign resources
+        never change as a side effect of a Sheet refresh. No external writes.
         """
-        owner=self.username(username)
-        source_id=int(sheet_id)
-        if source_id<=0 or len(rows)>2000:
+        owner = self.username(username)
+        source_id = int(sheet_id)
+        if source_id <= 0 or len(rows) > 2000:
             raise ValueError("Invalid Sheet source or row limit")
-        prepared=[]
-        seen_keys=set()
+        prepared = []
+        seen_keys = set()
+        seen_uc = set()
+        group_names = {}
         for raw in rows:
-            key=str(getattr(raw,"key","") or "").strip().lower()
-            name=str(getattr(raw,"channel_name","") or "").strip()
-            channel_id=str(getattr(raw,"channel_id","") or "").strip()
-            email=str(getattr(raw,"gmail","") or "").strip()
-            if not key or len(key)>180 or not name or len(name)>180:
+            key = str(getattr(raw, "key", "") or "").strip().lower()
+            name = str(getattr(raw, "channel_name", "") or "").strip()
+            ucid = str(getattr(raw, "channel_id", "") or "").strip()
+            email = str(getattr(raw, "gmail", "") or "").strip()
+            if not key or len(key) > 180 or not name or len(name) > 180:
                 raise ValueError("Sheet row has invalid channel key/name")
             if key in seen_keys:
                 raise ValueError("Duplicate Sheet row key")
             seen_keys.add(key)
-            if channel_id.lower().startswith("sheet:"):
-                channel_id=f"sheet:{source_id}:{key}"
-            elif not re.fullmatch(r"UC[A-Za-z0-9_-]{22}",channel_id):
+            if ucid.lower().startswith("sheet:"):
+                ucid = f"sheet:{source_id}:{key}"
+            elif not re.fullmatch(r"UC[A-Za-z0-9_-]{22}", ucid):
                 raise ValueError("Sheet channel ID must be a verified UC ID or a provisional row")
-            notes=str(getattr(raw,"notes","") or "").strip()[:500]
-            prepared.append((key,channel_id,name,email,notes))
+            if ucid in seen_uc:
+                raise ValueError("Duplicate YouTube Channel ID in this Sheet")
+            seen_uc.add(ucid)
+            supplied = set(getattr(raw, "present_fields", ()) or ())
+            fields = {}
+            if "proxy" in supplied:
+                from desktop_core.modules.secret_store import protect_secret
+                host = str(getattr(raw, "proxy_host", "") or "").strip()
+                port = str(getattr(raw, "proxy_port", "") or "").strip()
+                scheme = str(getattr(raw, "proxy_scheme", "") or "").strip().lower()
+                proxy_user = str(getattr(raw, "proxy_username", "") or "").strip()
+                proxy_password = str(getattr(raw, "proxy_password", "") or "")
+                if (host and (not re.fullmatch(r"[A-Za-z0-9_.:-]{1,253}", host)
+                             or not port.isascii() or not port.isdecimal()
+                             or not 1 <= int(port) <= 65535
+                             or scheme not in {"http", "https"})):
+                    raise ValueError(f"Invalid proxy host/port in Sheet row {key}")
+                if not host and (port or proxy_user or proxy_password):
+                    raise ValueError(f"Incomplete proxy in Sheet row {key}")
+                fields.update(proxy_scheme=scheme if host else "", proxy_host=host,
+                              proxy_port=port if host else "", proxy_username=proxy_user if host else "",
+                              proxy_password=protect_secret(proxy_password if host else ""),
+                              sheet_ip_raw=str(getattr(raw, "ip", "") or "").strip())
+            if "browser_profile" in supplied:
+                fields["browser_profile_name"] = str(getattr(raw, "browser_profile", "") or "").strip()[:180]
+            if "channel_link" in supplied:
+                fields["channel_url"] = str(getattr(raw, "channel_link", "") or "").strip()[:1500]
+            if "sr" in supplied:
+                fields["sheet_sr"] = str(getattr(raw, "sr", "") or "").strip()[:80]
+            if "status" in supplied:
+                status = str(getattr(raw, "sheet_status", "") or "").strip().upper()
+                if status:
+                    if status in {"ACTIVE", "YES", "TRUE", "ON", "1"}:
+                        fields["status"] = "ACTIVE"
+                    elif status in {"INACTIVE", "NO", "FALSE", "OFF", "0", "REMOVE", "REMOVED"}:
+                        fields["status"] = "INACTIVE"
+                    elif status in {"DISABLED", "PAUSED"}:
+                        fields["status"] = "DISABLED"
+                    else:
+                        raise ValueError(f"Invalid Sheet status in row {key}")
+                fields["sheet_status"] = status
+            if "group" in supplied:
+                names = []
+                for candidate in re.split(r"[,;|]+", str(getattr(raw, "group", "") or "")):
+                    group_name = re.sub(r"\s+", " ", candidate).strip()
+                    if not group_name or group_name.lower() in {"none", "no", "na", "n/a", "-"}:
+                        continue
+                    if (len(group_name) > 80 or any(ord(c) < 32 for c in group_name)):
+                        raise ValueError(f"Invalid group name in Sheet row {key}")
+                    names.append(group_name)
+                    group_names[group_name.casefold()] = group_name
+                fields["_groups"] = tuple(dict.fromkeys(names))
+            notes = str(getattr(raw, "notes", "") or "").strip()[:500]
+            prepared.append((key, ucid, name, email, notes, fields))
         if not prepared:
             raise ValueError("Google Sheet returned zero usable rows; no changes applied")
 
         with self.db.connect() as con:
             self._initialize(con)
             con.execute("BEGIN IMMEDIATE")
-            source=con.execute(
-                "SELECT id FROM sheet_sources WHERE id=?",(source_id,)).fetchone()
-            assigned=con.execute("""SELECT owner_username FROM studio_entity_owners
-                 WHERE entity_kind='sheet' AND entity_id=?""",(source_id,)).fetchone()
-            if not source or not assigned or str(assigned[0]).casefold()!=owner:
+            source = con.execute("SELECT id FROM sheet_sources WHERE id=?", (source_id,)).fetchone()
+            assigned = con.execute("""SELECT owner_username FROM studio_entity_owners
+                WHERE entity_kind='sheet' AND entity_id=?""", (source_id,)).fetchone()
+            if not source or not assigned or str(assigned[0]).casefold() != owner:
                 raise PermissionError("Sheet source is not owned by this account")
-            updates=0
-            for key,ucid,name,email,notes in prepared:
-                by_row=con.execute(
+            columns = {str(col[1]) for col in con.execute("PRAGMA table_info(channels)")}
+            managed_groups = any("_groups" in entry[-1] for entry in prepared)
+            group_ids = {}
+            if managed_groups:
+                # A globally named group owned by someone else (or legacy
+                # unassigned) cannot be silently adopted by the Sheet.
+                for group_name in group_names.values():
+                    group = con.execute(
+                        "SELECT id FROM channel_groups WHERE group_name=? COLLATE NOCASE",
+                        (group_name,)).fetchone()
+                    if group:
+                        gid = int(group[0])
+                        linked = con.execute("""SELECT owner_username FROM studio_entity_owners
+                            WHERE entity_kind='group' AND entity_id=?""", (gid,)).fetchone()
+                        if not linked or str(linked[0]).casefold() != owner:
+                            raise PermissionError("Sheet group name belongs to an unassigned or different workspace")
+                    else:
+                        gid = int(con.execute(
+                            "INSERT INTO channel_groups(group_name,notes) VALUES (?,?)",
+                            (group_name, "Owned Sheet-managed group"),
+                        ).lastrowid)
+                        con.execute("""INSERT INTO studio_entity_owners
+                            (entity_kind,entity_id,owner_username) VALUES ('group',?,?)""", (gid, owner))
+                    group_ids[group_name.casefold()] = gid
+            updates = 0
+            memberships = {}
+            for key, ucid, name, email, notes, fields in prepared:
+                by_row = con.execute(
                     "SELECT id,channel_id FROM channels WHERE sheet_source_id=? AND sheet_row_key=?",
-                    (source_id,key)).fetchone()
-                by_id=con.execute(
-                    "SELECT id FROM channels WHERE channel_id=?",
-                    (ucid,)).fetchone()
-                if by_id and (not by_row or int(by_row[0])!=int(by_id[0])):
-                    # The user may attach their OWN previously registered manual
-                    # UC channel. Keep its same DB row and OAuth token file.
-                    existing=con.execute(
+                    (source_id, key)).fetchone()
+                by_id = con.execute("SELECT id FROM channels WHERE channel_id=?", (ucid,)).fetchone()
+                if by_id and (not by_row or int(by_row[0]) != int(by_id[0])):
+                    existing = con.execute(
                         "SELECT id,channel_id,sheet_source_id FROM channels WHERE id=?",
                         (int(by_id[0]),)).fetchone()
-                    linked=con.execute("""SELECT owner_username FROM studio_entity_owners
-                        WHERE entity_kind='channel' AND entity_id=?""",
-                        (int(by_id[0]),)).fetchone()
-                    if (by_row or not existing or existing[2] is not None or
-                        not linked or str(linked[0]).casefold()!=owner):
+                    linked = con.execute("""SELECT owner_username FROM studio_entity_owners
+                        WHERE entity_kind='channel' AND entity_id=?""", (int(by_id[0]),)).fetchone()
+                    if (by_row or not existing or
+                        (existing[2] is not None and int(existing[2]) != source_id) or
+                        not linked or str(linked[0]).casefold() != owner):
                         raise PermissionError("Sheet channel ID exists outside this owned Sheet row")
-                    by_row=(int(existing[0]),str(existing[1]))
+                    # A verified UC ID may safely identify this same owner's
+                    # row after Sr changes without resetting history/token.
+                    by_row = (int(existing[0]), str(existing[1]))
+                values = {"channel_id": ucid, "channel_name": name,
+                          "google_account_email": email, "sheet_notes": notes,
+                          "sheet_source_id": source_id, "sheet_row_key": key, "sheet_present": 1}
+                values.update({k: v for k, v in fields.items() if k != "_groups"})
                 if by_row:
-                    cid=int(by_row[0])
-                    assigned_channel=con.execute("""SELECT owner_username
-                        FROM studio_entity_owners WHERE entity_kind='channel' AND entity_id=?""",
-                        (cid,)).fetchone()
-                    if not assigned_channel or str(assigned_channel[0]).casefold()!=owner:
+                    cid = int(by_row[0])
+                    assigned_channel = con.execute("""SELECT owner_username FROM studio_entity_owners
+                        WHERE entity_kind='channel' AND entity_id=?""", (cid,)).fetchone()
+                    if not assigned_channel or str(assigned_channel[0]).casefold() != owner:
                         raise PermissionError("Existing Sheet channel is not owned by this account")
-                    previous=str(by_row[1] or "")
-                    if previous.startswith("UC") and previous!=ucid:
+                    previous = str(by_row[1] or "")
+                    if previous.startswith("UC") and ucid.startswith("sheet:"):
+                        values["channel_id"] = previous  # OAuth's verified UC ID always wins over a provisional Sheet label.
+                    elif previous.startswith("UC") and previous != ucid:
                         raise PermissionError("Existing authorized UC Channel ID cannot change via Sheet")
-                    con.execute("""UPDATE channels SET channel_id=?,channel_name=?,
-                        google_account_email=?,sheet_notes=?,sheet_source_id=?,sheet_row_key=?,
-                        sheet_present=1,sheet_last_seen_at=CURRENT_TIMESTAMP,
-                        last_used_at=CURRENT_TIMESTAMP WHERE id=?""",
-                        (ucid,name,email,notes,source_id,key,cid))
+                    assignments = [f"{k}=?" for k in values if k in columns]
+                    parameters = [v for k, v in values.items() if k in columns]
+                    con.execute("UPDATE channels SET " + ",".join(assignments) +
+                                ",sheet_last_seen_at=CURRENT_TIMESTAMP,last_used_at=CURRENT_TIMESTAMP WHERE id=?",
+                                (*parameters, cid))
                 else:
-                    cur=con.execute("""INSERT INTO channels(
-                        channel_id,channel_name,google_account_email,token_file_path,
-                        status,sheet_source_id,sheet_row_key,sheet_present,sheet_notes,
-                        sheet_last_seen_at)
-                        VALUES (?,?,?,'','ACTIVE',?,?,1,?,CURRENT_TIMESTAMP)""",
-                        (ucid,name,email,source_id,key,notes))
-                    cid=int(cur.lastrowid)
+                    values.update(token_file_path="", status=values.get("status", "ACTIVE"))
+                    names = [k for k in values if k in columns]
+                    cid = int(con.execute(
+                        "INSERT INTO channels (" + ",".join(names) + ",sheet_last_seen_at) VALUES (" +
+                        ",".join("?" for _ in names) + ",CURRENT_TIMESTAMP)",
+                        tuple(values[k] for k in names)).lastrowid)
                     con.execute("""INSERT INTO studio_entity_owners
                         (entity_kind,entity_id,owner_username) VALUES ('channel',?,?)""",
-                        (cid,owner))
-                updates+=1
-            keys=[entry[0] for entry in prepared]
-            placeholders=",".join("?" for _ in keys)
-            # No queue/history deletion, token rotation or group mutation.
-            removed=con.execute("""UPDATE channels SET sheet_present=0
-                WHERE sheet_source_id=? AND COALESCE(sheet_row_key,'') NOT IN ("""+
-                placeholders+""") AND COALESCE(sheet_present,1)<>0""",
-                (source_id,*keys)).rowcount
+                        (cid, owner))
+                if "_groups" in fields:
+                    memberships[cid] = [group_ids[n.casefold()] for n in fields["_groups"]]
+                updates += 1
+            # Only replace memberships on proven owned rows explicitly covered
+            # by the Sheet's Group column. Never delete foreign channel/group records.
+            if managed_groups:
+                for cid, target_groups in memberships.items():
+                    con.execute("DELETE FROM channel_group_members WHERE channel_db_id=?", (cid,))
+                    for gid in target_groups:
+                        con.execute("""INSERT OR IGNORE INTO channel_group_members
+                            (group_id,channel_db_id) VALUES (?,?)""", (gid, cid))
+            keys = [entry[0] for entry in prepared]
+            placeholders = ",".join("?" for _ in keys)
+            removed = con.execute("""UPDATE channels SET sheet_present=0
+                WHERE sheet_source_id=? AND COALESCE(sheet_row_key,'') NOT IN (""" +
+                placeholders + """) AND COALESCE(sheet_present,1)<>0""",
+                (source_id, *keys)).rowcount
             con.execute("""UPDATE sheet_sources SET last_sync_at=CURRENT_TIMESTAMP,
                 last_sync_status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
-                (f"OWNED_SYNC: rows={updates} hidden={removed}",source_id))
-            return {"ok":True,"rows":updates,"updated":updates,"hidden_removed":removed,
-                    "groups_touched":0,"source_id":source_id}
+                (f"OWNED_SYNC: rows={updates} hidden={removed} groups={len(group_ids)} master=1", source_id))
+            return {"ok": True, "rows": updates, "updated": updates, "hidden_removed": removed,
+                    "groups_touched": len(group_ids), "source_id": source_id}
 
     def delete_owned_sheet(self, username, sheet_id):
         """Detach only owned channels; do not delete media, groups or tokens."""

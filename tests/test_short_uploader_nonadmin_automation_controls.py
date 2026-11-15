@@ -119,6 +119,7 @@ class ShortMemberControls(TestCase):
             "os":os,"current_user":lambda req:{"username":"alice","is_admin":True},
             "require_csrf":lambda *a:None,"require_heavy":lambda *a:None,
             "_short_owned_automation_profiles":lambda req:[selected],
+            "_short_sheet_sync_before_start":lambda user: None,
             "db":SimpleNamespace(list_auto_engine_profiles=lambda:(_ for _ in ()).throw(
                  AssertionError("Short admin must not use global profiles"))),
             "v6_store":Store(),"v6_generate_queue":lambda db,st,p:{"created":1},
@@ -164,6 +165,7 @@ class ShortMemberControls(TestCase):
             "os":os,"current_user":lambda req:{"username":"alice","is_admin":False},
             "require_csrf":lambda *a:None,"require_heavy":lambda *a:None,
             "_short_owned_automation_profiles":lambda req:[own],
+            "_short_sheet_sync_before_start":lambda user: None,
             "db":SimpleNamespace(list_auto_engine_profiles=lambda:(_ for _ in ()).throw(AssertionError("global profile query"))),
             "v6_store":store,"v6_generate_queue":lambda db,s,pr:{"created":1,"duplicates_blocked":0},
             "v6_ensure_shortstudio_owner_scope":lambda db,st,ids:st.set_manual_profile_ids(

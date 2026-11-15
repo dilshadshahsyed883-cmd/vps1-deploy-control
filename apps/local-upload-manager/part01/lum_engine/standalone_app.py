@@ -89,6 +89,7 @@ from .sheets_bridge import (
     delete_sheet_source as web_delete_sheet_source,
     sync_sheet_source_by_id as web_sync_sheet_source_by_id,
     sync_all_sheet_sources as web_sync_all_sheet_sources,
+    sync_owned_sheet_source as web_sync_owned_sheet_source,
     fetch_sheet_csv as tenant_fetch_sheet_csv,
     rows_to_sheet_rows as tenant_rows_to_sheet_rows,
     TOKEN_DIR as tenant_token_dir,
@@ -1051,6 +1052,10 @@ def channel_network(channel_id: int, request: Request, csrf_token: str = Form(..
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
         _studio_require("channel",channel_id,user)
+        if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+            channel = db.get_channel(channel_id) or {}
+            if channel.get("sheet_source_id") and int(channel.get("sheet_present") or 0):
+                raise PermissionError("This channel's proxy and browser settings are Sheet-managed. Edit Google Sheet, then Sync.")
         db.update_channel_network_profile(channel_id, browser_profile_name=profile_name, proxy_scheme=proxy_scheme, proxy_host=proxy_host, proxy_port=proxy_port, proxy_username=proxy_username, proxy_password=proxy_password)
         return redirect("/app?tab=channels", message="Channel network profile updated")
     except Exception as exc:
@@ -1213,20 +1218,15 @@ def sheets_sync(
             result=web_sync_sheet_source_by_id(db,int(source_id))
         else:
             _studio_require("sheet",int(source_id),user)
-            source=db.get_sheet_source(int(source_id))
-            if not source:
-                raise ValueError("Sheet source does not exist")
-            raw=tenant_fetch_sheet_csv(source["sheet_url_or_id"],None)
-            if not raw:
-                raise ValueError("Sheet returned zero rows; no existing records changed")
-            prepared=tenant_rows_to_sheet_rows(raw,str(tenant_token_dir))
-            result=studio_tenants.sync_owned_sheet_rows(
-                user["username"],int(source_id),prepared)
+            result=web_sync_owned_sheet_source(
+                db, studio_tenants, user["username"], int(source_id),
+                fetch_rows=tenant_fetch_sheet_csv, parse_rows=tenant_rows_to_sheet_rows)
         if result.get("ok"):
             return redirect(
                 f"/app?tab=sheets&source_id={int(source_id)}",
                 message=f"Sheet synced · {int(result.get('rows') or 0)} row(s). "
-                        "Group memberships and existing OAuth remain unchanged.",
+                        f"Sheet-owned group mapping updated ({int(result.get('groups_touched') or 0)} group(s)). "
+                        "Existing OAuth and upload history preserved.",
             )
         return redirect(
             f"/app?tab=sheets&source_id={int(source_id)}",
@@ -1257,10 +1257,9 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
                 sid=int(source["id"])
                 try:
                     _studio_require("sheet",sid,user)
-                    raw=tenant_fetch_sheet_csv(source["sheet_url_or_id"],None)
-                    if not raw: raise ValueError("Sheet returned zero rows")
-                    prepared=tenant_rows_to_sheet_rows(raw,str(tenant_token_dir))
-                    outcome=studio_tenants.sync_owned_sheet_rows(user["username"],sid,prepared)
+                    outcome=web_sync_owned_sheet_source(
+                        db, studio_tenants, user["username"], sid,
+                        fetch_rows=tenant_fetch_sheet_csv, parse_rows=tenant_rows_to_sheet_rows)
                     if not outcome.get("ok"): raise ValueError(str(outcome.get("error") or "Sheet sync failed"))
                     done+=1; rows+=int(outcome.get("rows") or 0)
                 except Exception as exc:
@@ -1404,6 +1403,10 @@ def channels_status(
     try:
         for channel_id in channel_ids:
             _studio_require("channel",channel_id,user)
+            if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+                channel = db.get_channel(channel_id) or {}
+                if channel.get("sheet_source_id") and int(channel.get("sheet_present") or 0):
+                    raise PermissionError("Sheet-managed channel status must be changed in Google Sheet and synchronized.")
         updated=set_status_bulk(db, channel_ids, status)
         return redirect("/app?tab=channels", message=f"Updated {updated} channel(s) to {str(status).upper()}.")
     except Exception as exc:
@@ -2280,6 +2283,22 @@ def auto_v6_preview_all(request: Request):
     return V6JSONResponse({"ok":True,"profiles":summaries,"eligible_jobs":total})
 
 
+def _short_sheet_sync_before_start(user: dict) -> None:
+    """Never start new Short jobs with an older owner Sheet configuration.
+
+    An unavailable/invalid Sheet aborts Start before any queue/scheduler
+    mutation. Manual-only owners with no enabled Sheet remain supported.
+    """
+    if os.environ.get("LUM_ENGINE_INSTANCE") != "shortstudio":
+        return
+    allowed = _studio_allowed_ids("sheet", user)
+    for source in db.list_sheet_sources():
+        sid = int(source["id"])
+        if not int(source.get("enabled") or 0) or sid not in allowed:
+            continue
+        web_sync_owned_sheet_source(db, studio_tenants, user["username"], sid)
+
+
 # Profile-level controls are for Song/Short groups. The worker respects the
 # manual run scope so Start one cannot lease another profile's queued videos.
 @app.post(route("/actions/auto-v6/start-profile"))
@@ -2291,6 +2310,7 @@ def auto_v6_start_profile(request: Request,csrf_token: str=Form(...),profile_id:
     previously_enabled=None
     try:
         profile=_v6_profile(pid,request)
+        _short_sheet_sync_before_start(user)
         if profile.get("channel_db_id"):
             raise ValueError("Use the legacy channel profile controls for this profile.")
         previously_enabled=bool(int(profile.get("enabled") or 0))
@@ -2352,6 +2372,11 @@ def auto_v6_start_all(request: Request,csrf_token: str=Form(...),confirmation: s
     profiles=(_short_owned_automation_profiles(request) if mode=="shortstudio" else
               _song_owned_automation_profiles(request)) if member else db.list_auto_engine_profiles()
     enabled=[p for p in profiles if int(p.get("enabled") or 0)==1]
+    if mode == "shortstudio":
+        try:
+            _short_sheet_sync_before_start(user)
+        except Exception as exc:
+            return redirect("/app?tab=auto_engine", error="Sheet master sync failed; no new upload started: "+str(exc))
     if member:
         if not enabled:
             return redirect("/app?tab=auto_engine",error="No enabled owned profiles to start.")
