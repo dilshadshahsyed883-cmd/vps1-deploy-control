@@ -2568,10 +2568,16 @@ async def auto_v6_profile_schedules_save(request: Request):
 async def auto_v6_job_network_action(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
+    if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio":
+        return redirect("/app?tab=auto_engine",
+            message="Old per-job network recovery controls are retired. Queue records were not changed.")
     vid=int(str(form.get("video_id") or "0"))
     action=str(form.get("action") or "").strip().lower()
     if action not in {"retry","cancel"}:
-        return redirect("/app?tab=auto_engine",error="Unknown network queue action.")
+        return redirect("/app?tab=auto_engine",
+            error=("This old network control is no longer available. Refresh the Short Uploader queue."
+                   if os.getenv("LUM_ENGINE_INSTANCE")=="shortstudio"
+                   else "Unknown network queue action."))
     row=db.get_video(vid) if vid>0 else None
     if not row or not row.get("auto_engine_profile_id"):
         return redirect("/app?tab=auto_engine",error="Auto Engine queue job not found.")
@@ -2689,9 +2695,9 @@ def auto_v6_resume_paused(request: Request,csrf_token: str=Form(...)):
             safe=[j for j in jobs if str(j.get("recovery_state") or "").strip().upper() in {"NONE","AUTO_RESUME"}]
             review=[j for j in jobs if str(j.get("recovery_state") or "").strip().upper()=="REVIEW_REQUIRED"]
             unknown=len(jobs)-len(safe)-len(review)
-            detail=(f"{len(review)} require YouTube Studio recovery review; "
+            detail=(f"{len(review)} have incomplete remote upload evidence; "
                     f"{unknown} have unclassified legacy recovery state. "
-                    "Review the paused rows below; do not retry an uncertain remote upload.")
+                    "These uncertain uploads remain parked; stored remote-ID and ledger guards are unchanged.")
             if not safe:
                 return redirect("/app?tab=auto_engine",
                     error=f"No safely resumable paused jobs. {detail}")
@@ -2772,6 +2778,8 @@ async def auto_v6_remove_selected(request: Request):
 async def auto_v6_recovery_clear(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
+    if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+        return redirect("/app?tab=auto_engine",error="Legacy YouTube Studio review controls were removed. No queue jobs changed.")
     if str(form.get("confirmation") or "").strip()!="I CHECKED YOUTUBE":
         return redirect("/app?tab=auto_engine",error='Type I CHECKED YOUTUBE exactly after checking YouTube Studio.')
     ids=_v6_selected_ids(form)

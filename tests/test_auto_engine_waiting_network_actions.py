@@ -244,11 +244,11 @@ class WaitingNetworkQueueActions(unittest.TestCase):
         self.assertIn("lum-ae-network-actions", src)
         self.assertIn('name="action" value="retry"', src)
         self.assertIn('name="action" value="cancel"', src)
-        self.assertIn("if (q.status or '')|upper == 'WAITING_NETWORK'", src)
+        self.assertIn("engine_instance != 'shortstudio' and (q.status or '')|upper == 'WAITING_NETWORK'", src)
         self.assertLess(src.index("lum-ae-network-actions"), src.index("{% if q.channel_job %}"))
         Environment().parse(src)
 
-    def test_review_panel_has_one_full_width_confirmation_and_two_unclipped_actions(self):
+    def test_short_queue_removes_review_controls_and_puts_error_after_status(self):
         src = TEMPLATE.read_text()
         start = src.index("{% for q in ae.queue %}<tr>")
         end = src.index("{% endfor %}", start) + len("{% endfor %}")
@@ -258,6 +258,7 @@ class WaitingNetworkQueueActions(unittest.TestCase):
             "channel_name": "Wadero", "metadata_video_key": None, "channel_job": False,
             "source_filename": "ronaldo 2 song 098.mp4", "thumbnail_filename": None,
             "title": "Ronaldo test title", "app_upload_at": None, "youtube_url": None,
+            "error_message": "AUTO_PROXY_WAIT|some-proxy|1|2026-11-15",
         }
         def render(mode, **changes):
             job = dict(base, **changes)
@@ -265,41 +266,48 @@ class WaitingNetworkQueueActions(unittest.TestCase):
                                    base_path="/short-uploader", csrf="csrf-test",
                                    user={"is_admin": False})
 
-        reviewed = render("shortstudio")
-        self.assertIn('class="lum-ae-review-row"', reviewed)
-        self.assertIn('colspan="12"', reviewed)
-        self.assertIn('class="lum-ae-review-confirmation"', reviewed)
-        self.assertEqual(reviewed.count('name="confirmation"'), 1)
-        self.assertEqual(reviewed.count('name="video_id"'), 1)
-        self.assertEqual(reviewed.count('name="action" value="retry"'), 1)
-        self.assertEqual(reviewed.count('name="action" value="cancel"'), 1)
-        self.assertIn("Retry after review", reviewed)
-        self.assertIn("Cancel after review", reviewed)
-        self.assertNotIn('<div class="lum-ae-network-actions"', reviewed)
+        short = render("shortstudio")
+        self.assertNotIn("lum-ae-review-row", short)
+        self.assertNotIn("lum-ae-review-form", short)
+        self.assertNotIn("lum-ae-network-actions", short)
+        self.assertNotIn('name="confirmation"', short)
+        self.assertNotIn('name="action" value="retry"', short)
+        self.assertNotIn("YouTube Studio", short)
+        self.assertEqual(short.count("<tr"), 1)
+        self.assertIn('class="lum-ae-error-cell"', short)
+        self.assertLess(short.index("WAITING_NETWORK"), short.index("AUTO_PROXY_WAIT"))
+        self.assertLess(short.index("AUTO_PROXY_WAIT"), short.index("Wadero"))
 
         normal = render("shortstudio", recovery_state="NONE")
-        self.assertIn("lum-ae-network-actions", normal)
-        self.assertNotIn("lum-ae-review-row", normal)
-        self.assertNotIn('name="confirmation"', normal)
+        self.assertNotIn("lum-ae-network-actions", normal)
+        self.assertIn("AUTO_PROXY_WAIT", normal)
 
         song = render("song")
         self.assertIn("lum-ae-network-actions", song)
-        self.assertNotIn("lum-ae-review-row", song)
         self.assertEqual(song.count('name="confirmation"'), 2)
+        self.assertIn("Retry after review", song)
 
-    def test_review_ui_css_and_live_refresh_preserve_typed_confirmation(self):
+        header = src[src.index('<table class="lum-table lum-ae-queue">'):
+                     src.index("</thead>", src.index('<table class="lum-table lum-ae-queue">'))]
+        self.assertLess(header.index("<th>Status</th>"),
+                        header.index("<th>Error / Post State</th>"))
+        self.assertLess(header.index("<th>Error / Post State</th>"),
+                        header.index("<th>Channel</th>"))
+        self.assertNotIn("Authorize Fresh Retry for Selected Review Jobs", short)
+
+    def test_review_ui_removed_in_short_style_and_browser_script(self):
         css = (PART / "static/local_upload_manager.css").read_text()
         js = SCRIPT.read_text()
         base = (PART / "templates/base.html").read_text()
-        self.assertIn('.lum-ae-review-row td', css)
-        self.assertIn('max-width:none!important', css)
-        self.assertIn('.lum-ae-review-field input', css)
-        self.assertIn('white-space:nowrap!important', css)
-        self.assertIn('function reviewDraftInProgress(panel)', js)
-        self.assertIn('if(reviewDraftInProgress(live))return;', js)
-        self.assertIn("if(e.submitter?.value==='cancel'", js)
-        self.assertIn('if(f.matches(\'[data-ae-network-review-form]\'))', js)
-        self.assertIn('queue-review=20261115-v1', base)
+        self.assertIn('.lum-ae-queue td:nth-child(5)', css)
+        self.assertIn('.lum-ae-error-text', css)
+        self.assertNotIn('.lum-ae-review-row', css)
+        self.assertNotIn('reviewDraftInProgress', js)
+        self.assertNotIn('data-ae-network-review-form', js)
+        self.assertIn("queue-layout=20261115-v2", base)
+        routes = ROUTES.read_text()
+        self.assertIn("Old per-job network recovery controls are retired.", routes)
+        self.assertIn('Legacy YouTube Studio review controls were removed.', routes)
 
     def test_stale_queue_ids_are_pruned_after_live_refresh(self):
         js = SCRIPT.read_text()

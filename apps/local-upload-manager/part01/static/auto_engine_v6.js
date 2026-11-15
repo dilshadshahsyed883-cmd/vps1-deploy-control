@@ -251,15 +251,6 @@
 
   document.addEventListener('submit',e=>{
     const f=e.target;
-    if(f.matches('[data-ae-network-review-form]')){
-      if(f.querySelector('.lum-ae-review-confirmation')?.value.trim()!=='NO REMOTE VIDEO'){
-        e.preventDefault();e.stopImmediatePropagation();
-        alert('Check YouTube Studio first, then type NO REMOTE VIDEO exactly.');return;
-      }
-      if(e.submitter?.value==='cancel' && !window.confirm('Cancel this reviewed network-wait job? Source media and upload records will be retained.')){
-        e.preventDefault();e.stopImmediatePropagation();return;
-      }
-    }
     if(f.matches('[data-ae-queue-form]') && !addIds(f,qSelected,'video_ids',true)){e.preventDefault();e.stopImmediatePropagation();return;}
     if(f.matches('[data-ae-queue-optional-form]'))addIds(f,qSelected,'video_ids',false);
     if(f.matches('[data-ae-thumb-form]') && !addIds(f,tSelected,'asset_ids',true)){e.preventDefault();e.stopImmediatePropagation();return;}
@@ -287,14 +278,8 @@
     if(state==='retry'){b.textContent='● Live retrying';b.style.background='#fff4df';b.style.color='#9a6200';}
     else{b.textContent='● Live';b.style.background='#e8f8ef';b.style.color='#167047';b.title='Queue updates automatically without refreshing the page';}
   }
-  function reviewDraftInProgress(panel){
-    return [...panel.querySelectorAll('.lum-ae-review-confirmation')].some(field=>field.value.trim().length>0);
-  }
   async function refreshQueueLive(force=false){
     const live=queueLivePanel();if(!live||queueLiveBusy||document.hidden)return;
-    // Keep the single typed YouTube confirmation even if the field blurs.
-    // A 2-second live snapshot must never silently replace it.
-    if(reviewDraftInProgress(live))return;
     const active=document.activeElement;
     if(!force&&active&&live.contains(active)&&/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(active.tagName))return;
     queueLiveBusy=true;
@@ -306,8 +291,6 @@
       const fresh=queueLivePanel(doc);if(!fresh)throw new Error('Queue table missing in live snapshot');
       const freshHtml=fresh.innerHTML;
       if(force||freshHtml!==queueLiveLast){
-        // The user may have started typing while the async fetch was running.
-        if(reviewDraftInProgress(live))return;
         const y=window.scrollY;
         live.innerHTML=freshHtml;queueLiveLast=freshHtml;updateQ();queueLiveBadge(live,'live');
         if(Math.abs(window.scrollY-y)>2)window.scrollTo(window.scrollX,y);
