@@ -197,23 +197,27 @@ class HeygenOutbox:
                 for row in rows:
                     if self.state(row["owner"]) == "running":
                         self.dispatch(row["owner"], row["id"])
-                if self.on_complete is not None:
-                    with self.connection() as con:
-                        sent = con.execute("SELECT owner,id FROM heygen_outbox "
-                                           "WHERE state='sent' ORDER BY created_at DESC LIMIT 50").fetchall()
-                    for row in sent:
-                        try:
-                            if self.cached is not None and self.cached(row["owner"], row["id"]):
-                                continue
-                            with self.client_factory(row["owner"], timeout=12) as client:
-                                response = client.get("api/v1/jobs/" + row["id"], timeout=12)
-                            if response.status_code == 200 and response.json().get("status") == "completed":
-                                self.on_complete(row["owner"], row["id"])
-                        except (HTTPException, httpx.HTTPError, OSError, ValueError, KeyError):
-                            pass
+                self.observe_completed()
             except (OSError, sqlite3.Error):
                 pass
             self.stop_event.wait(WAIT_SECONDS)
+
+    def observe_completed(self):
+        if self.on_complete is None:
+            return
+        with self.connection() as con:
+            sent = con.execute("SELECT owner,id FROM heygen_outbox "
+                               "WHERE state='sent' ORDER BY created_at DESC LIMIT 50").fetchall()
+        for row in sent:
+            try:
+                if self.cached is not None and self.cached(row["owner"], row["id"]):
+                    continue
+                with self.client_factory(row["owner"], timeout=12) as client:
+                    response = client.get("api/v1/jobs/" + row["id"], timeout=12)
+                if response.status_code == 200 and response.json().get("status") == "completed":
+                    self.on_complete(row["owner"], row["id"])
+            except (HTTPException, httpx.HTTPError, OSError, ValueError, KeyError):
+                pass
 
     def dispatch(self, owner: str, job_id: str):
         if self.state(owner) != "running":
