@@ -47,18 +47,33 @@ def delete_sheet_source(db: Any, source_id: int) -> None:
     db.delete_sheet_source(int(source_id))
 
 
-def sync_owned_sheet_source(db: Any, tenants: Any, username: str, source_id: int) -> Dict[str, Any]:
-    """Canonical first-tab Sheet pull for a verified owner; never trust a URL from a POST."""
+def sync_owned_sheet_source(
+    db: Any, tenants: Any, username: str, source_id: int, *,
+    fetch_rows=None, parse_rows=None,
+) -> Dict[str, Any]:
+    """Canonical first-tab Sheet pull for one verified owner.
+
+    One failed CSV/validation pass changes only the Sheet's failure receipt.
+    Channels and OAuth remain unchanged, and new uploads cannot use a stale
+    success receipt from before the error.
+    """
     source = db.get_sheet_source(int(source_id))
     if not source:
         raise ValueError("Sheet source not found")
     if tenants.owner("sheet", int(source_id)) != tenants.username(username):
         raise PermissionError("Sheet source is not owned by this account")
-    rows = fetch_sheet_csv(source["sheet_url_or_id"], None)
-    if not rows:
-        raise ValueError("Sheet returned zero rows; no configuration changed")
-    parsed = rows_to_sheet_rows(rows, str(TOKEN_DIR))
-    return tenants.sync_owned_sheet_rows(username, int(source_id), parsed)
+    try:
+        rows = (fetch_rows or fetch_sheet_csv)(source["sheet_url_or_id"], None)
+        if not rows:
+            raise ValueError("Sheet returned zero rows; no configuration changed")
+        parsed = (parse_rows or rows_to_sheet_rows)(rows, str(TOKEN_DIR))
+        return tenants.sync_owned_sheet_rows(username, int(source_id), parsed)
+    except Exception:
+        with db.connect() as conn:
+            conn.execute("""UPDATE sheet_sources
+                SET last_sync_status='SHEET_MASTER_FAILED: check source and retry',
+                    updated_at=CURRENT_TIMESTAMP WHERE id=?""", (int(source_id),))
+        raise
 
 
 def owned_sheet_fresh(db: Any, owner_username: str, *, minutes: int = 17) -> bool:
