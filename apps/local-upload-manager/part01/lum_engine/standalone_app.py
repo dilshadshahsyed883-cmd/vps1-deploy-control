@@ -2587,7 +2587,7 @@ async def auto_v6_job_network_action(request: Request):
             except Exception as exc:
                 return redirect("/app?tab=auto_engine",error=str(exc))
     reviewed=str(row.get("recovery_state") or "").upper()=="REVIEW_REQUIRED"
-    if reviewed and str(form.get("confirmation") or "").strip()!="NO REMOTE VIDEO":
+    if reviewed and os.getenv("LUM_ENGINE_INSTANCE") != "shortstudio" and str(form.get("confirmation") or "").strip()!="NO REMOTE VIDEO":
         return redirect("/app?tab=auto_engine",
             error=f"Job #{vid}: Check the channel in YouTube Studio and type NO REMOTE VIDEO exactly before retry or cancellation.")
     ok,message=db.resolve_waiting_network_job(vid,action,reviewed=reviewed)
@@ -2772,6 +2772,8 @@ async def auto_v6_remove_selected(request: Request):
 async def auto_v6_recovery_clear(request: Request):
     user=current_user(request); require_heavy(user)
     form=await request.form(); require_csrf(request,str(form.get("csrf_token") or ""))
+    if os.getenv("LUM_ENGINE_INSTANCE") == "shortstudio":
+        return redirect("/app?tab=auto_engine",error="Legacy YouTube Studio review controls were removed. No queue jobs changed.")
     if str(form.get("confirmation") or "").strip()!="I CHECKED YOUTUBE":
         return redirect("/app?tab=auto_engine",error='Type I CHECKED YOUTUBE exactly after checking YouTube Studio.')
     ids=_v6_selected_ids(form)
