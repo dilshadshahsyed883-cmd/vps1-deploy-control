@@ -22,6 +22,8 @@ from .auto_engine_v6 import (STAGING_ROOT, V6Store, drive_delete_source, drive_d
 # Only the independent Short Uploader instance participates.
 if os.environ.get("LUM_ENGINE_INSTANCE") == "shortstudio":
     from .uploader_shortstudio_cooperation import uploader_shortstudio_guard
+    from .studio_tenants import StudioTenants
+    from .sheets_bridge import owned_sheet_fresh
 else:
     from contextlib import nullcontext
     uploader_shortstudio_guard = nullcontext
@@ -655,6 +657,13 @@ def main() -> None:
                                 manual=state.get("manual_profile_ids")
                             verified=shortstudio_verified_profile_ids(db,store)
                             enabled.intersection_update(pid for pid,active in verified.items() if active)
+                            # Check each user's Sheet freshness separately. A
+                            # failed Bob Sheet never blocks Alice's owned queue,
+                            # and no new upload leases use stale configuration.
+                            sheet_tenants=StudioTenants(db)
+                            enabled={pid for pid in enabled
+                                     if (owner := sheet_tenants.owner("profile",pid))
+                                     and owned_sheet_fresh(db,owner)}
                             if manual is None:
                                 raise RuntimeError("Short worker owner scope is unset")
                         if manual is not None:
