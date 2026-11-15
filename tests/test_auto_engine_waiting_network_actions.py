@@ -27,6 +27,20 @@ def waiting_only():
     return namespace["WaitingOnly"]
 
 
+def short_resume_only():
+    tree = ast.parse(REPO.read_text())
+    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "QueueRepository")
+    fn = next(node for node in cls.body if isinstance(node, ast.FunctionDef)
+              and node.name == "resume_paused_shortstudio")
+    code = ast.Module(body=[ast.ImportFrom(module="__future__",
+             names=[ast.alias(name="annotations")],level=0),
+             ast.ClassDef(name="ShortResumeOnly",bases=[],keywords=[],
+                          body=[fn],decorator_list=[])],type_ignores=[])
+    scope = {}
+    exec(compile(ast.fix_missing_locations(code),str(REPO),"exec"),scope)
+    return scope["ShortResumeOnly"]
+
+
 class WaitingNetworkQueueActions(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -48,7 +62,7 @@ class WaitingNetworkQueueActions(unittest.TestCase):
                     claimed_at TEXT,lease_expires_at TEXT,error_message TEXT,updated_at TEXT,progress INTEGER DEFAULT 0);
                 CREATE TABLE upload_ledger(
                     channel_db_id INTEGER,upload_fingerprint TEXT,state TEXT,
-                    video_id INTEGER,updated_at TEXT);
+                    video_id INTEGER,updated_at TEXT,youtube_video_id TEXT,youtube_url TEXT);
                 CREATE TABLE upload_logs(video_id INTEGER,level TEXT,message TEXT,progress INTEGER);
                 INSERT INTO videos(id,auto_engine_profile_id,status,recovery_state,
                     media_stage_state,pipeline_stage,upload_bytes_confirmed,channel_db_id,upload_fingerprint)
@@ -65,6 +79,78 @@ class WaitingNetworkQueueActions(unittest.TestCase):
     def row(self):
         with self.connect() as conn:
             return conn.execute("SELECT * FROM videos WHERE id=1").fetchone()
+
+    def test_one_click_short_resumes_ambiguous_and_preserves_remote_receipts(self):
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE videos SET status='PAUSED',recovery_state='REVIEW_REQUIRED',"
+                "media_stage_state='RUNNING',pipeline_stage='MEDIA',"
+                "upload_bytes_confirmed=52,progress=48 WHERE id=1"
+            )
+            conn.execute("UPDATE upload_ledger SET state='AMBIGUOUS' WHERE video_id=1")
+            conn.execute(
+                "INSERT INTO videos(id,auto_engine_profile_id,status,recovery_state,"
+                "channel_db_id,upload_fingerprint,youtube_video_id) VALUES"
+                "(2,9,'PAUSED','REVIEW_REQUIRED',4,'fp-2','remote_2')"
+            )
+            conn.execute(
+                "INSERT INTO upload_ledger(video_id,channel_db_id,upload_fingerprint,state,"
+                "youtube_video_id) VALUES(2,4,'fp-2','REMOTE_CREATED','remote_2')"
+            )
+            conn.execute(
+                "INSERT INTO videos(id,auto_engine_profile_id,status,recovery_state,"
+                "channel_db_id,upload_fingerprint,resumable_uri) VALUES"
+                "(3,9,'PAUSED','NONE',4,'fp-3','session_3')"
+            )
+            conn.execute(
+                "INSERT INTO upload_ledger(video_id,channel_db_id,upload_fingerprint,state)"
+                " VALUES(3,4,'fp-3','RESUMABLE')"
+            )
+            conn.execute(
+                "INSERT INTO videos(id,auto_engine_profile_id,status,recovery_state,"
+                "channel_db_id,upload_fingerprint) VALUES"
+                "(4,12,'PAUSED','REVIEW_REQUIRED',5,'fp-4')"
+            )
+            conn.execute(
+                "INSERT INTO upload_ledger(video_id,channel_db_id,upload_fingerprint,state)"
+                " VALUES(4,5,'fp-4','AMBIGUOUS')"
+            )
+        obj = short_resume_only()()
+        obj.connect = self.connect
+        obj._set_ledger_state = self.obj._set_ledger_state
+        self.assertEqual(obj.resume_paused_shortstudio([1,2,3]),(2,1,1))
+        with self.connect() as conn:
+            rows={int(r["id"]):r for r in conn.execute("SELECT * FROM videos")}
+            self.assertEqual(rows[1]["status"],"QUEUED")
+            self.assertEqual(rows[1]["recovery_state"],"NONE")
+            self.assertEqual(rows[1]["upload_bytes_confirmed"],0)
+            self.assertEqual(rows[1]["media_stage_state"],"PENDING")
+            self.assertIn("may duplicate",rows[1]["error_message"])
+            self.assertEqual(rows[2]["status"],"PAUSED")
+            self.assertEqual(rows[2]["youtube_video_id"],"remote_2")
+            self.assertEqual(rows[3]["status"],"QUEUED")
+            self.assertEqual(rows[3]["resumable_uri"],"session_3")
+            self.assertEqual(rows[4]["status"],"PAUSED")
+            states={int(r["video_id"]):r["state"] for r in
+                    conn.execute("SELECT video_id,state FROM upload_ledger")}
+            self.assertEqual(states,{1:"RESERVED",2:"REMOTE_CREATED",
+                                     3:"RESUMABLE",4:"AMBIGUOUS"})
+        # Repeated button clicks never restart already queued videos.
+        self.assertEqual(obj.resume_paused_shortstudio([1,2,3]),(0,0,1))
+
+    def test_one_click_never_forces_claimed_or_completed_ambiguous_jobs(self):
+        with self.connect() as conn:
+            conn.execute("UPDATE videos SET status='PAUSED',"
+                         "recovery_state='REVIEW_REQUIRED',claim_worker_id='worker' WHERE id=1")
+        obj=short_resume_only()()
+        obj.connect=self.connect
+        obj._set_ledger_state=self.obj._set_ledger_state
+        self.assertEqual(obj.resume_paused_shortstudio([1]),(0,0,1))
+        with self.connect() as conn:
+            conn.execute("UPDATE videos SET claim_worker_id=NULL WHERE id=1")
+            conn.execute("UPDATE upload_ledger SET state='COMPLETED' WHERE video_id=1")
+        self.assertEqual(obj.resume_paused_shortstudio([1]),(0,0,1))
+        self.assertEqual(self.row()["status"],"PAUSED")
 
     def test_retry_returns_only_proven_pre_media_job_to_queue(self):
         ok, message = self.obj.resolve_waiting_network_job(1, "retry")
