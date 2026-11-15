@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
+from heygen_delivery import VerifiedMedia
 from fastapi import File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 
@@ -82,6 +83,7 @@ class HeygenBridge:
                     PRIMARY KEY(owner, id));
             """)
         os.chmod(self.db, 0o600)
+        self.media = VerifiedMedia(self.root, self.connection, self._client)
 
     def connection(self):
         con = sqlite3.connect(str(self.db), timeout=15)
@@ -154,10 +156,16 @@ class HeygenBridge:
             status_map, online = {}, False
         items = []
         for row in rows:
-            item = status_map.get(row["id"])
+            job_id = row["id"]
+            item = status_map.get(job_id)
+            vault = self.media.snapshot(owner, job_id)
             if item is None:
-                item = {"status": "missing_from_worker" if online else "worker_unavailable"}
-            items.append({**item, "id": row["id"], "created_at": row["created_at"]})
+                item = {"status": ("completed" if vault["state"] == "ready" else
+                                   "missing_from_worker" if online else "worker_unavailable")}
+            if item.get("status") == "completed" and vault["state"] != "ready":
+                vault = self.media.schedule(owner, job_id)
+            items.append({**item, "id": job_id, "created_at": row["created_at"],
+                          "vps_media": vault})
         return {"items": items}
 
     def submit(self, owner: str, image: UploadFile, audio: UploadFile):
@@ -180,6 +188,8 @@ class HeygenBridge:
         self.owned(owner, job_id)
         if action == "delete":
             self.request(owner, "DELETE", "api/v1/jobs/" + job_id)
+            # Remove owner media only after the worker acknowledges deletion.
+            self.media.delete(owner, job_id)
             with self.connection() as con:
                 con.execute("DELETE FROM jobs WHERE owner=? AND id=?", (owner, job_id))
             return {"deleted": True}
@@ -188,8 +198,21 @@ class HeygenBridge:
         response = self.request(owner, "POST", "api/v1/jobs/" + job_id + "/" + action)
         return response.json()
 
+    def save_video(self, owner: str, job_id: str):
+        self.owned(owner, job_id)
+        state = self.media.snapshot(owner, job_id)
+        if state["state"] == "ready":
+            return state
+        remote = self.request(owner, "GET", "api/v1/jobs/" + job_id).json()
+        if remote.get("status") != "completed":
+            raise HTTPException(409, "GPU job has not completed")
+        return self.media.schedule(owner, job_id, force=True)
+
     def video(self, owner: str, job_id: str, download: bool = False):
         self.owned(owner, job_id)
+        local = self.media.response(owner, job_id, download)
+        if local is not None:
+            return local
         client = self._client(owner, timeout=300)
         try:
             request = client.build_request("GET", "api/v1/jobs/" + job_id + "/video")
@@ -274,6 +297,10 @@ def register_heygen_studio(app, templates, root, require_admin, require_login, t
     @app.post("/api/heygen-studio/jobs/{job_id}/{action}")
     def job_action(request: Request, job_id: str, action: str):
         return bridge.action(csrf(request), job_id, action)
+
+    @app.post("/api/heygen-studio/jobs/{job_id}/save")
+    def job_save(request: Request, job_id: str):
+        return bridge.save_video(csrf(request), job_id)
 
     @app.get("/api/heygen-studio/jobs/{job_id}/video")
     def job_video(request: Request, job_id: str, download: int = 0):
