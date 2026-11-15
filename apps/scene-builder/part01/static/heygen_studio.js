@@ -53,7 +53,10 @@
       const data = await api("/config");
       $("hg-endpoint").value = data.endpoint || "";
       $("hg-token").value = "";
-      $("hg-token-state").textContent = data.has_token ? "Token saved on VPS" : "No token saved";
+      $("hg-token-state").textContent = data.has_token ? "HeyGen token saved on VPS" : "No HeyGen token saved";
+      $("hg-salad-token").value = "";
+      $("hg-salad-token-state").textContent = data.has_salad_key
+        ? "SaladCloud API key saved on VPS" : "No SaladCloud API key saved";
       $("hg-connection").textContent = data.configured ? "GPU configured — not verified" : "GPU not configured";
       $("hg-connection").dataset.state = data.configured ? "ready" : "offline";
     } catch (e) { message(e.message, true); }
@@ -62,9 +65,11 @@
     event.preventDefault();
     try {
       const result = await api("/config", {method:"POST", json:true, body:{
-        endpoint:$("hg-endpoint").value.trim(), token:$("hg-token").value
+        endpoint:$("hg-endpoint").value.trim(), token:$("hg-token").value,
+        salad_api_key:$("hg-salad-token").value
       }});
       $("hg-token").value = "";
+      $("hg-salad-token").value = "";
       message(result.configured ? "GPU configuration saved. Run Test Connection to verify readiness." : "Configuration saved, GPU not connected.");
       await loadConfig();
     } catch (e) { message(e.message, true); }

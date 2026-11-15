@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -15,7 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 SCENE = Path(__file__).resolve().parents[1] / "apps/scene-builder/part01"
 sys.path.insert(0, str(SCENE))
-from heygen_studio import register_heygen_studio
+from heygen_studio import HeygenBridge, register_heygen_studio
 
 
 class HeygenStudioTest(unittest.TestCase):
@@ -24,18 +25,22 @@ class HeygenStudioTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.previous = {}
         from os import environ
-        for name in ("HEYGEN_WORKER_ALLOWED_HOSTS", "HEYGEN_WORKER_URL", "HEYGEN_WORKER_API_KEY"):
+        for name in ("HEYGEN_WORKER_ALLOWED_HOSTS", "HEYGEN_WORKER_URL",
+                     "HEYGEN_WORKER_API_KEY", "HEYGEN_SALAD_API_KEY"):
             self.previous[name] = environ.get(name)
         environ["HEYGEN_WORKER_ALLOWED_HOSTS"] = "worker.example"
         environ.pop("HEYGEN_WORKER_URL", None)
         environ.pop("HEYGEN_WORKER_API_KEY", None)
+        environ.pop("HEYGEN_SALAD_API_KEY", None)
         self.addCleanup(self.restore_env)
 
         self.remote_jobs = {}
         self.remote_token = None
+        self.remote_salad_key = None
         self.identity = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         def upstream(request: httpx.Request):
             self.remote_token = request.headers.get("Authorization")
+            self.remote_salad_key = request.headers.get("Salad-Api-Key")
             path = request.url.path
             if path == "/api/v1/engine":
                 return httpx.Response(200, json={"engine": "sadtalker", "models_ready": True,
@@ -115,7 +120,8 @@ class HeygenStudioTest(unittest.TestCase):
 
     def configure(self, headers):
         return self.client.post("/api/heygen-studio/config", headers=headers, json={
-            "endpoint": "https://worker.example", "token": "sample-secret"})
+            "endpoint": "https://worker.example", "token": "sample-secret",
+            "salad_api_key": "sample-salad-secret"})
 
     @staticmethod
     def uploads():
@@ -132,10 +138,13 @@ class HeygenStudioTest(unittest.TestCase):
         cfg = self.client.get("/api/heygen-studio/config").json()
         self.assertTrue(cfg["configured"])
         self.assertTrue(cfg["has_token"])
+        self.assertTrue(cfg["has_salad_key"])
         self.assertNotIn("sample-secret", str(cfg))
+        self.assertNotIn("sample-salad-secret", str(cfg))
         self.assertNotIn("sample-secret", self.client.get("/heygen-studio/").text)
         self.assertEqual(self.client.get("/api/heygen-studio/engine").json()["engine"], "sadtalker")
         self.assertEqual(self.remote_token, "Bearer sample-secret")
+        self.assertEqual(self.remote_salad_key, "sample-salad-secret")
         created = self.client.post("/api/heygen-studio/jobs", headers=headers, files=self.uploads())
         self.assertEqual(created.status_code, 202, created.text)
         self.assertEqual(created.json()["id"], self.identity)
@@ -151,6 +160,46 @@ class HeygenStudioTest(unittest.TestCase):
         self.assertEqual(self.client.post(f"/api/heygen-studio/jobs/{self.identity}/retry", headers=headers).status_code, 200)
         self.assertEqual(self.client.post(f"/api/heygen-studio/jobs/{self.identity}/delete", headers=headers).status_code, 200)
         self.assertEqual(self.client.get("/api/heygen-studio/jobs").json(), {"items":[]})
+
+    def test_blank_credentials_preserve_existing_keys(self):
+        self.login()
+        headers = self.token()
+        self.assertEqual(self.configure(headers).status_code, 200)
+        saved = self.client.post("/api/heygen-studio/config", headers=headers, json={
+            "endpoint": "https://worker.example", "token": "",
+            "salad_api_key": "",
+        })
+        self.assertEqual(saved.status_code, 200)
+        self.assertTrue(saved.json()["has_token"])
+        self.assertTrue(saved.json()["has_salad_key"])
+        self.assertNotIn("sample-salad-secret", saved.text)
+        self.assertEqual(self.client.get("/api/heygen-studio/engine").status_code, 200)
+        self.assertEqual(self.remote_token, "Bearer sample-secret")
+        self.assertEqual(self.remote_salad_key, "sample-salad-secret")
+
+    def test_legacy_config_table_adds_salad_key_column(self):
+        with tempfile.TemporaryDirectory() as folder:
+            data = Path(folder) / "heygen-studio"
+            data.mkdir()
+            with sqlite3.connect(data / "bridge.sqlite3") as con:
+                con.execute("CREATE TABLE config(owner TEXT PRIMARY KEY, endpoint TEXT NOT NULL, token TEXT NOT NULL)")
+                con.execute("INSERT INTO config VALUES(?,?,?)",
+                            ("alice", "https://worker.example", "old-avatar-key"))
+            bridge = HeygenBridge(Path(folder), transport=self.bridge.transport)
+            self.addCleanup(bridge.media.pool.shutdown, wait=True)
+            self.addCleanup(bridge.outbox.close)
+            before = bridge.config("alice")
+            self.assertTrue(before["has_token"])
+            self.assertFalse(before["has_salad_key"])
+            after = bridge.save("alice", {
+                "endpoint": "https://worker.example",
+                "salad_api_key": "new-gateway-key",
+            })
+            self.assertTrue(after["has_salad_key"])
+            self.assertNotIn("new-gateway-key", str(after))
+            with bridge._client("alice") as client:
+                self.assertEqual(client.headers["Authorization"], "Bearer old-avatar-key")
+                self.assertEqual(client.headers["Salad-Api-Key"], "new-gateway-key")
 
     def test_nonadmins_and_guests_are_denied(self):
         for role in ("guest", "member"):
