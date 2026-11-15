@@ -137,18 +137,28 @@ class HeygenBridge:
             raise HTTPException(404, "Job not found")
 
     def list_jobs(self, owner: str):
+        """Read one worker snapshot, then expose only owner-mapped IDs."""
         with self.connection() as con:
             rows = con.execute("SELECT id,created_at FROM jobs WHERE owner=? "
                                "ORDER BY created_at DESC LIMIT 100", (owner,)).fetchall()
-        result = []
+        if not rows:
+            return {"items": []}
+        try:
+            remote = self.request(owner, "GET", "api/v1/jobs").json()
+            if not isinstance(remote, list):
+                raise ValueError("Invalid worker jobs response")
+            status_map = {str(job["id"]): job for job in remote
+                          if isinstance(job, dict) and "id" in job}
+            online = True
+        except (HTTPException, ValueError, TypeError, KeyError):
+            status_map, online = {}, False
+        items = []
         for row in rows:
-            try:
-                item = self.request(owner, "GET", "api/v1/jobs/" + row["id"]).json()
-                result.append({**item, "id": row["id"], "created_at": row["created_at"]})
-            except HTTPException:
-                result.append({"id": row["id"], "created_at": row["created_at"],
-                               "status": "worker_unavailable"})
-        return {"items": result}
+            item = status_map.get(row["id"])
+            if item is None:
+                item = {"status": "missing_from_worker" if online else "worker_unavailable"}
+            items.append({**item, "id": row["id"], "created_at": row["created_at"]})
+        return {"items": items}
 
     def submit(self, owner: str, image: UploadFile, audio: UploadFile):
         image_suffix, image_mime = _check_upload(image, IMAGE_EXT, IMAGE_LIMIT, "image")
