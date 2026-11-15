@@ -85,7 +85,10 @@ class HeygenBridge:
             """)
         os.chmod(self.db, 0o600)
         self.media = VerifiedMedia(self.root, self.connection, self._client)
-        self.outbox = HeygenOutbox(self.root, self.connection, self._client)
+        self.outbox = HeygenOutbox(
+            self.root, self.connection, self._client,
+            on_complete=self.media.schedule,
+            cached=lambda owner, job: self.media.snapshot(owner, job)["state"] == "ready")
 
     def connection(self):
         con = sqlite3.connect(str(self.db), timeout=15)
