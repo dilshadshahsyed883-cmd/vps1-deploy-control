@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/precutover_policy.py'
       - 'apps/scene-builder/part01/heygen_studio.py'
       - 'apps/scene-builder/part01/heygen_delivery.py'
       - 'apps/scene-builder/part01/heygen_outbox.py'
@@ -48,11 +49,14 @@ jobs:
           from pathlib import Path
           base=Path("apps/scene-builder/part01/templates/base.html").read_text()
           app=Path("apps/scene-builder/part01/app.py").read_text()
-          assert base.count('href="/heygen-studio/"') == 1
+          assert base.count('href="/heygen-studio/"') == 2
           shell=Path("apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text()
           assert '["HeyGen Studio", "/heygen-studio/", "heygen"]' in shell
           assert 'register_heygen_studio' in app
-          assert 'request.url.path.startswith("/api/heygen-studio/")' in app
+          assert 'HEYGEN_STUDIO = register_heygen_studio(app, templates, DATA_DIR, require_login, require_login)' in app
+          assert 'request.url.path.rstrip("/") == "/heygen-studio" or' not in app
+          policy=Path("apps/scene-builder/part01/precutover_policy.py").read_text()
+          assert '("POST", "/api/heygen-studio/config")' in policy
           assert Path("apps/scene-builder/part01/static/heygen_studio.js").exists()
           assert Path("apps/scene-builder/part01/templates/heygen_studio.html").exists()
           print("VPS1_OWNS_UI=YES; HEYGEN_REPO_OWNS_GPU_IMAGE=YES")
