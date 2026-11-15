@@ -41,8 +41,15 @@
     </div>
   </section>
   <section class="hg-section" id="hg-jobs" hidden>
-    <div class="hg-card hg-toolbar"><div><h3>Generation jobs</h3><p>Only your account's submitted videos are visible here.</p></div>
-      <button class="hg-btn secondary" type="button" id="hg-refresh">Refresh</button></div>
+    <div class="hg-card hg-toolbar"><div><h3>Generation jobs</h3>
+      <p>Uploads stay queued safely on VPS_1 while the GPU worker is unavailable.</p>
+      <span id="hg-queue-state" class="hg-pill">Queue loading</span></div>
+      <div class="hg-actions">
+        <button class="hg-btn primary" type="button" id="hg-start-queue">Start Queue</button>
+        <button class="hg-btn secondary" type="button" id="hg-pause-queue">Pause</button>
+        <button class="hg-btn secondary" type="button" id="hg-resume-queue">Resume</button>
+        <button class="hg-btn secondary" type="button" id="hg-refresh">Refresh</button>
+      </div></div>
     <div id="hg-list" class="hg-list"><p class="hg-note">No jobs yet.</p></div>
   </section>
   <section class="hg-section" id="hg-gpu" hidden>

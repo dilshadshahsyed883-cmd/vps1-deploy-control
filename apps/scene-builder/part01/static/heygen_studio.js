@@ -28,7 +28,7 @@
       button.setAttribute("aria-selected", String(selected));
     });
     ["create", "jobs", "gpu"].forEach(item => $("hg-" + item).hidden = item !== name);
-    if (name === "jobs") refreshJobs();
+    if (name === "jobs") { refreshJobs(); refreshQueue(); }
   }
   root.querySelectorAll(".hg-tabs button").forEach(button => button.addEventListener("click", () => tab(button.dataset.tab)));
   $("hg-view-jobs").addEventListener("click", () => tab("jobs"));
@@ -122,6 +122,26 @@
       refreshJobs();
     } catch (e) { message(e.message, true); }
   }
+  async function refreshQueue() {
+    try {
+      const data = await api("/queue");
+      const state = data.state || "stopped";
+      $("hg-queue-state").textContent = "Queue: " + state;
+      $("hg-start-queue").disabled = state === "running";
+      $("hg-pause-queue").disabled = state === "paused";
+      $("hg-resume-queue").disabled = state === "running";
+    } catch (e) { message(e.message, true); }
+  }
+  for (const action of ["start", "pause", "resume"]) {
+    $("hg-" + action + "-queue").addEventListener("click", async () => {
+      try {
+        await api("/queue/" + action, {method:"POST"});
+        await refreshQueue();
+        await refreshJobs();
+      } catch (e) { message(e.message, true); }
+    });
+  }
+
   async function refreshJobs() {
     if (active !== "jobs") return;
     const list = $("hg-list");
@@ -157,17 +177,31 @@
           error.textContent = job.error;
           card.append(error);
         }
+        if (job.vps_media) {
+          const saved = document.createElement("p");
+          saved.className = "hg-note";
+          saved.textContent = job.vps_media.state === "ready"
+            ? "MP4 verified and saved on VPS (available when GPU is offline)"
+            : job.vps_media.state === "copying"
+              ? "Copying verified MP4 to VPS…"
+              : job.vps_media.state === "failed"
+                ? "VPS media copy failed; use Retry VPS Save"
+                : "VPS media copy pending";
+          card.append(saved);
+        }
         const actions = document.createElement("div");
         actions.className = "hg-actions";
         if (job.status === "completed") {
           actions.append(button("Preview", () => window.open("/api/heygen-studio/jobs/" + job.id + "/video", "_blank", "noopener,noreferrer")));
           actions.append(button("Download", () => {window.location.href="/api/heygen-studio/jobs/" + job.id + "/video?download=1";}));
+          if (job.vps_media && !["ready", "copying"].includes(job.vps_media.state))
+            actions.append(button(job.vps_media.state === "failed" ? "Retry VPS Save" : "Save to VPS", () => jobAction(job, "save")));
         }
-        if (["queued", "running", "cancelling"].includes(job.status))
+        if (["queued", "running", "cancelling", "waiting_network", "waiting_upgrade"].includes(job.status))
           actions.append(button("Cancel", () => jobAction(job, "cancel"), true));
         if (["failed", "cancelled"].includes(job.status))
           actions.append(button("Retry", () => jobAction(job, "retry")));
-        if (["completed", "failed", "cancelled"].includes(job.status))
+        if (["completed", "failed", "cancelled", "waiting_network", "waiting_upgrade"].includes(job.status))
           actions.append(button("Delete", () => jobAction(job, "delete"), true));
         card.append(actions);
         list.append(card);
@@ -175,6 +209,6 @@
     } catch (e) { message(e.message, true); }
   }
   $("hg-refresh").addEventListener("click", refreshJobs);
-  setInterval(() => {if (active === "jobs" && !document.hidden) refreshJobs();}, 12000);
+  setInterval(() => {if (active === "jobs" && !document.hidden) { refreshJobs(); refreshQueue(); }}, 12000);
   loadConfig();
 })();

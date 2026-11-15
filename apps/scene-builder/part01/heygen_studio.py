@@ -14,6 +14,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
+from heygen_delivery import VerifiedMedia
+from heygen_outbox import HeygenOutbox
 from fastapi import File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 
@@ -82,6 +84,11 @@ class HeygenBridge:
                     PRIMARY KEY(owner, id));
             """)
         os.chmod(self.db, 0o600)
+        self.media = VerifiedMedia(self.root, self.connection, self._client)
+        self.outbox = HeygenOutbox(
+            self.root, self.connection, self._client,
+            on_complete=self.media.schedule,
+            cached=lambda owner, job: self.media.snapshot(owner, job)["state"] == "ready")
 
     def connection(self):
         con = sqlite3.connect(str(self.db), timeout=15)
@@ -152,17 +159,39 @@ class HeygenBridge:
             online = True
         except (HTTPException, ValueError, TypeError, KeyError):
             status_map, online = {}, False
+        pending = self.outbox.snapshot(owner)
         items = []
         for row in rows:
-            item = status_map.get(row["id"])
-            if item is None:
-                item = {"status": "missing_from_worker" if online else "worker_unavailable"}
-            items.append({**item, "id": row["id"], "created_at": row["created_at"]})
+            job_id = row["id"]
+            queued = pending.get(job_id)
+            item = status_map.get(job_id)
+            vault = self.media.snapshot(owner, job_id)
+            if queued and queued["state"] != "sent":
+                item = {"status": queued["state"], "error": queued.get("error") or None}
+            elif item is None:
+                item = {"status": ("completed" if vault["state"] == "ready" else
+                                   "missing_from_worker" if online else "worker_unavailable")}
+            if item.get("status") == "completed" and vault["state"] != "ready":
+                vault = self.media.schedule(owner, job_id)
+            items.append({**item, "id": job_id, "created_at": row["created_at"],
+                          "vps_media": vault})
         return {"items": items}
 
     def submit(self, owner: str, image: UploadFile, audio: UploadFile):
         image_suffix, image_mime = _check_upload(image, IMAGE_EXT, IMAGE_LIMIT, "image")
         audio_suffix, audio_mime = _check_upload(audio, AUDIO_EXT, AUDIO_LIMIT, "audio")
+        # A compatible worker supports retry-safe IDs, allowing a durable VPS
+        # queue. Offline uploads remain private until the worker is reachable.
+        try:
+            capability = self.request(owner, "GET", "api/v1/engine").json()
+        except HTTPException as exc:
+            if exc.status_code == 503:
+                return self.outbox.add(owner, image, audio, image_suffix, audio_suffix)
+            raise
+        if capability.get("supports_idempotent_submit") is True:
+            return self.outbox.add(owner, image, audio, image_suffix, audio_suffix)
+        # Backwards-compatible direct submission for older connected workers.
+        # If their response is lost, do NOT auto-retry (no idempotent contract).
         response = self.request(owner, "POST", "api/v1/jobs", files={
             "image": ("portrait" + image_suffix, image.file, image_mime),
             "audio": ("speech" + audio_suffix, audio.file, audio_mime),
@@ -178,8 +207,14 @@ class HeygenBridge:
 
     def action(self, owner: str, job_id: str, action: str):
         self.owned(owner, job_id)
+        local = self.outbox.action(owner, job_id, action)
+        if local is not None:
+            return local
         if action == "delete":
             self.request(owner, "DELETE", "api/v1/jobs/" + job_id)
+            # Remove owner media only after the worker acknowledges deletion.
+            self.media.delete(owner, job_id)
+            self.outbox.forget(owner, job_id)
             with self.connection() as con:
                 con.execute("DELETE FROM jobs WHERE owner=? AND id=?", (owner, job_id))
             return {"deleted": True}
@@ -188,8 +223,21 @@ class HeygenBridge:
         response = self.request(owner, "POST", "api/v1/jobs/" + job_id + "/" + action)
         return response.json()
 
+    def save_video(self, owner: str, job_id: str):
+        self.owned(owner, job_id)
+        state = self.media.snapshot(owner, job_id)
+        if state["state"] == "ready":
+            return state
+        remote = self.request(owner, "GET", "api/v1/jobs/" + job_id).json()
+        if remote.get("status") != "completed":
+            raise HTTPException(409, "GPU job has not completed")
+        return self.media.schedule(owner, job_id, force=True)
+
     def video(self, owner: str, job_id: str, download: bool = False):
         self.owned(owner, job_id)
+        local = self.media.response(owner, job_id, download)
+        if local is not None:
+            return local
         client = self._client(owner, timeout=300)
         try:
             request = client.build_request("GET", "api/v1/jobs/" + job_id + "/video")
@@ -263,6 +311,14 @@ def register_heygen_studio(app, templates, root, require_admin, require_login, t
         owner = admin(request)
         return bridge.request(owner, "GET", "api/v1/engine").json()
 
+    @app.get("/api/heygen-studio/queue")
+    def queue_status(request: Request):
+        return {"state": bridge.outbox.state(admin(request))}
+
+    @app.post("/api/heygen-studio/queue/{action}")
+    def queue_action(request: Request, action: str):
+        return bridge.outbox.control(csrf(request), action)
+
     @app.get("/api/heygen-studio/jobs")
     def jobs(request: Request):
         return bridge.list_jobs(admin(request))
@@ -274,6 +330,10 @@ def register_heygen_studio(app, templates, root, require_admin, require_login, t
     @app.post("/api/heygen-studio/jobs/{job_id}/{action}")
     def job_action(request: Request, job_id: str, action: str):
         return bridge.action(csrf(request), job_id, action)
+
+    @app.post("/api/heygen-studio/jobs/{job_id}/save")
+    def job_save(request: Request, job_id: str):
+        return bridge.save_video(csrf(request), job_id)
 
     @app.get("/api/heygen-studio/jobs/{job_id}/video")
     def job_video(request: Request, job_id: str, download: int = 0):
