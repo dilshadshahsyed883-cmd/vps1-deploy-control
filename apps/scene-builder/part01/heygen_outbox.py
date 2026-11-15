@@ -14,7 +14,6 @@ import shutil
 import sqlite3
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,7 +35,6 @@ class HeygenOutbox:
         self.connection, self.client_factory = connection, client_factory
         self.inflight = set()
         self.guard = threading.RLock()
-        self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="heygen-outbox")
         self.stop_event = threading.Event()
         self.thread = None
         self.auto_start = auto_start
@@ -50,7 +48,7 @@ class HeygenOutbox:
                 owner TEXT PRIMARY KEY, state TEXT NOT NULL DEFAULT 'running')""")
             # All in-flight uploads can be replayed idempotently after restart.
             con.execute("UPDATE heygen_outbox SET state='waiting_network' WHERE state='uploading'")
-            pending = bool(con.execute("SELECT 1 FROM heygen_outbox WHERE state='waiting_network' LIMIT 1").fetchone())
+            pending = bool(con.execute("SELECT 1 FROM heygen_outbox WHERE state IN ('waiting_network','waiting_upgrade') LIMIT 1").fetchone())
         if pending and auto_start:
             self.start()
 
@@ -129,29 +127,40 @@ class HeygenOutbox:
         return {row["id"]: {"state": row["state"], "error": row["error"]} for row in rows}
 
     def action(self, owner: str, job_id: str, action: str):
-        with self.connection() as con:
-            row = con.execute("SELECT state FROM heygen_outbox WHERE owner=? AND id=?",
-                              (owner, job_id)).fetchone()
+        folder = self.folder(owner, job_id)
+        # Serialize with GPU dispatch so cancel/delete cannot overtake upload.
+        if not folder.exists():
+            with self.connection() as con:
+                row = con.execute("SELECT state FROM heygen_outbox WHERE owner=? AND id=?",
+                                  (owner, job_id)).fetchone()
             if not row or row["state"] == "sent":
                 return None
-            if row["state"] == "uploading":
-                raise HTTPException(409, "Upload in progress; retry after status changes")
-            if action == "cancel" and row["state"] != "cancelled":
-                con.execute("UPDATE heygen_outbox SET state='cancelled',error='' "
-                            "WHERE owner=? AND id=?", (owner, job_id))
-                return {"id": job_id, "status": "cancelled"}
-            if action == "retry" and row["state"] in {"cancelled", "waiting_network", "waiting_upgrade"}:
-                con.execute("UPDATE heygen_outbox SET state='waiting_network',error='' "
-                            "WHERE owner=? AND id=?", (owner, job_id))
-                self.start()
-                return {"id": job_id, "status": "waiting_network"}
-            if action == "delete" and row["state"] in {"cancelled", "waiting_network", "waiting_upgrade"}:
-                # Never remove a job whose GPU submission may be in flight.
-                folder = self.folder(owner, job_id)
-                shutil.rmtree(folder, ignore_errors=True)
-                con.execute("DELETE FROM heygen_outbox WHERE owner=? AND id=?", (owner, job_id))
-                con.execute("DELETE FROM jobs WHERE owner=? AND id=?", (owner, job_id))
-                return {"deleted": True}
+            raise HTTPException(409, "Missing queued media")
+        with (folder / ".dispatch.lock").open("a+b") as locked:
+            fcntl.flock(locked, fcntl.LOCK_EX)
+            with self.connection() as con:
+                row = con.execute("SELECT state FROM heygen_outbox WHERE owner=? AND id=?",
+                                  (owner, job_id)).fetchone()
+                if not row or row["state"] == "sent":
+                    return None
+                if row["state"] == "uploading":
+                    raise HTTPException(409, "Upload in progress; retry after status changes")
+                if action == "cancel" and row["state"] != "cancelled":
+                    con.execute("UPDATE heygen_outbox SET state='cancelled',error='' "
+                                "WHERE owner=? AND id=?", (owner, job_id))
+                    return {"id": job_id, "status": "cancelled"}
+                if action == "retry" and row["state"] in {"cancelled", "waiting_network", "waiting_upgrade"}:
+                    con.execute("UPDATE heygen_outbox SET state='waiting_network',error='' "
+                                "WHERE owner=? AND id=?", (owner, job_id))
+                    self.start()
+                    return {"id": job_id, "status": "waiting_network"}
+                if action == "delete" and row["state"] in {"cancelled", "waiting_network", "waiting_upgrade"}:
+                    con.execute("DELETE FROM heygen_outbox WHERE owner=? AND id=?", (owner, job_id))
+                    con.execute("DELETE FROM jobs WHERE owner=? AND id=?", (owner, job_id))
+                    # Remote was never positively acknowledged; any ambiguous
+                    # upload can only have occurred with a retry-safe ID.
+                    shutil.rmtree(folder, ignore_errors=True)
+                    return {"deleted": True}
         raise HTTPException(409, "Action unavailable for pending HeyGen job")
 
     def forget(self, owner: str, job_id: str):
@@ -181,7 +190,7 @@ class HeygenOutbox:
             try:
                 with self.connection() as con:
                     rows = con.execute("SELECT owner,id FROM heygen_outbox "
-                                       "WHERE state='waiting_network' ORDER BY created_at LIMIT 50").fetchall()
+                                       "WHERE state IN ('waiting_network','waiting_upgrade') ORDER BY created_at LIMIT 50").fetchall()
                 for row in rows:
                     if self.state(row["owner"]) == "running":
                         self.dispatch(row["owner"], row["id"])
@@ -213,7 +222,7 @@ class HeygenOutbox:
             with self.connection() as con:
                 row = con.execute("SELECT * FROM heygen_outbox WHERE owner=? AND id=?",
                                   (owner, job_id)).fetchone()
-                if not row or row["state"] not in {"waiting_network", "uploading"}:
+                if not row or row["state"] not in {"waiting_network", "waiting_upgrade", "uploading"}:
                     return
             try:
                 with self.client_factory(owner, timeout=600) as client:
