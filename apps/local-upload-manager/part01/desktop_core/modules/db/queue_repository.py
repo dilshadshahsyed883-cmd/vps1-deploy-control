@@ -1582,6 +1582,10 @@ class QueueRepository(BaseRepository):
                            WHERE channel_db_id=? AND upload_fingerprint=?""",
                         (new_state, channel, fingerprint),
                     )
+                # upload_logs.video_id REFERENCES videos(id) with FK enforcement.
+                # Release dependent logs BEFORE deleting the parent queue row.
+                # The surrounding BEGIN IMMEDIATE transaction keeps this atomic.
+                conn.execute("DELETE FROM upload_logs WHERE video_id=?", (vid,))
                 cur = conn.execute(
                     f"""DELETE FROM videos WHERE id=? AND auto_engine_profile_id IS NOT NULL
                         AND status IN ({marks})
@@ -1589,8 +1593,7 @@ class QueueRepository(BaseRepository):
                     (vid, *removable_statuses),
                 )
                 if not cur.rowcount:
-                    continue
-                conn.execute("DELETE FROM upload_logs WHERE video_id=?", (vid,))
+                    raise RuntimeError("Queue changed during selected removal; transaction aborted.")
                 conn.execute(
                     "INSERT INTO upload_logs(video_id,level,message,progress) "
                     "VALUES(NULL,'WARNING',?,0)", (audit,),
