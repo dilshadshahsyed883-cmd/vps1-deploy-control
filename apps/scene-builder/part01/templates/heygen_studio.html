@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}HeyGen Studio{% endblock %}
+{% block subtitle %}Independent AI talking avatar creation{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/heygen_studio.css?v=1">
+<section class="hg-wrap" id="heygen-studio" data-csrf="{{ csrf_token }}" aria-labelledby="hg-heading">
+  <header class="hg-head">
+    <div><div class="hg-eyebrow">EXPERIMENT STUDIO / ADMIN ONLY</div>
+      <h2 id="hg-heading">HeyGen Studio</h2>
+      <p>Generate a talking-avatar video from your portrait and voice recording.</p></div>
+    <span id="hg-connection" class="hg-pill">GPU not configured</span>
+  </header>
+  <nav class="hg-tabs" aria-label="HeyGen Studio sections">
+    <button type="button" class="active" data-tab="create" aria-selected="true">Create Video</button>
+    <button type="button" data-tab="jobs" aria-selected="false">Jobs &amp; Videos</button>
+    <button type="button" data-tab="gpu" aria-selected="false">GPU Config</button>
+  </nav>
+  <p id="hg-message" role="status" aria-live="polite"></p>
+  <section class="hg-section" id="hg-create">
+    <form class="hg-card" id="hg-create-form">
+      <h3>New Talking Avatar</h3>
+      <div class="hg-inputs">
+        <div class="hg-field">
+          <label for="hg-image">Avatar photo (JPG, PNG, WebP · up to 10 MB)</label>
+          <input id="hg-image" type="file" name="image" accept="image/jpeg,image/png,image/webp" required>
+          <img id="hg-image-preview" alt="Selected avatar preview" hidden>
+        </div>
+        <div class="hg-field">
+          <label for="hg-audio">Speech audio (WAV, MP3, M4A, FLAC · up to 80 MB)</label>
+          <input id="hg-audio" type="file" name="audio" accept=".wav,.mp3,.m4a,.flac,audio/*" required>
+          <audio id="hg-audio-preview" controls hidden></audio>
+        </div>
+      </div>
+      <p class="hg-note">The first release uses SadTalker 256-pixel face animation. Final MP4 appearance and speed depend on GPU testing. Only use images and voices you have permission to animate.</p>
+      <button class="hg-btn primary" type="submit" id="hg-generate">Generate Avatar Video</button>
+    </form>
+    <div class="hg-card">
+      <h3>Current production scope</h3>
+      <p>One portrait + one voice file → persistent GPU job → completed MP4. No GPU will be provisioned until you configure one.</p>
+      <button class="hg-btn secondary" type="button" id="hg-view-jobs">View queued videos</button>
+    </div>
+  </section>
+  <section class="hg-section" id="hg-jobs" hidden>
+    <div class="hg-card hg-toolbar"><div><h3>Generation jobs</h3>
+      <p>Uploads stay queued safely on VPS_1 while the GPU worker is unavailable.</p>
+      <span id="hg-queue-state" class="hg-pill">Queue loading</span></div>
+      <div class="hg-actions">
+        <button class="hg-btn primary" type="button" id="hg-start-queue">Start Queue</button>
+        <button class="hg-btn secondary" type="button" id="hg-pause-queue">Pause</button>
+        <button class="hg-btn secondary" type="button" id="hg-resume-queue">Resume</button>
+        <button class="hg-btn secondary" type="button" id="hg-refresh">Refresh</button>
+      </div></div>
+    <div id="hg-list" class="hg-list"><p class="hg-note">No jobs yet.</p></div>
+  </section>
+  <section class="hg-section" id="hg-gpu" hidden>
+    <form class="hg-card" id="hg-gpu-form">
+      <h3>HeyGen GPU Connection</h3>
+      <p>The AI model runs in a separate GPU container, not on VPS_1. Credentials stay on the VPS server.</p>
+      <div class="hg-field">
+        <label for="hg-image-name">Container image</label>
+        <input id="hg-image-name" disabled value="ghcr.io/dilshadshahsyed883-cmd/heygen:latest">
+      </div>
+      <div class="hg-field">
+        <label for="hg-endpoint">GPU API HTTPS URL</label>
+        <input id="hg-endpoint" type="url" placeholder="https://your-gpu-endpoint.example" autocomplete="off">
+        <small>GPU endpoint host must first be permitted in server HEYGEN_WORKER_ALLOWED_HOSTS, or provided by HEYGEN_WORKER_URL.</small>
+      </div>
+      <div class="hg-field">
+        <label for="hg-token">AVATAR_API_KEY</label>
+        <input id="hg-token" type="password" autocomplete="new-password" placeholder="Leave blank to retain saved token">
+        <small id="hg-token-state">Not saved</small>
+      </div>
+      <div class="hg-actions">
+        <button type="submit" class="hg-btn primary">Save GPU Configuration</button>
+        <button type="button" class="hg-btn secondary" id="hg-test">Test Connection</button>
+      </div>
+      <pre id="hg-engine" class="hg-engine" hidden></pre>
+      <p class="hg-note">Saving configuration does not launch or purchase any GPU. Worker model readiness is checked separately.</p>
+    </form>
+  </section>
+</section>
+<script defer src="/static/heygen_studio.js?v=1"></script>
+{% endblock %}
