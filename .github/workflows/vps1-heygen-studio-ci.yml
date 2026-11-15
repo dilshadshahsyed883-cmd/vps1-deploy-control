@@ -8,6 +8,9 @@ on:
       - 'apps/scene-builder/part01/templates/heygen_studio.html'
       - 'apps/scene-builder/part01/static/heygen_studio.*'
       - 'tests/test_heygen_studio.py'
+      - 'apps/scene-builder/part01/static/vps1_native_site_shell.js'
+      - 'tests/test_scene_native_sidebar_role.js'
+      - 'tests/test_experiment_auto_script_navigation.py'
       - '.github/workflows/vps1-heygen-studio-ci.yml'
   workflow_dispatch:
 
@@ -29,8 +32,11 @@ jobs:
         run: |
           python -m py_compile apps/scene-builder/part01/heygen_studio.py apps/scene-builder/part01/app.py tests/test_heygen_studio.py
           node --check apps/scene-builder/part01/static/heygen_studio.js
+          node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
       - name: Bridge, security and website tests
-        run: python -m unittest tests.test_heygen_studio -v
+        run: |
+          python -m unittest tests.test_heygen_studio tests.test_experiment_auto_script_navigation production.test_unified_sidebar_navigation -v
+          node --test tests/test_scene_native_sidebar_role.js
       - name: Verify separate GPU repository boundary
         run: |
           python - <<'PY'
@@ -38,6 +44,8 @@ jobs:
           base=Path("apps/scene-builder/part01/templates/base.html").read_text()
           app=Path("apps/scene-builder/part01/app.py").read_text()
           assert base.count('href="/heygen-studio/"') == 1
+          shell=Path("apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text()
+          assert '["HeyGen Studio", "/heygen-studio/", "heygen"]' in shell
           assert 'register_heygen_studio' in app
           assert 'request.url.path.startswith("/api/heygen-studio/")' in app
           assert Path("apps/scene-builder/part01/static/heygen_studio.js").exists()
