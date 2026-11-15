@@ -1,0 +1,32 @@
+# Dedicated standalone relay host, NOT VPS_1. Copy only after the host is ready.
+# Create /etc/my-remote/relay.env mode 0600; keep secrets out of GitHub.
+[Unit]
+Description=My Remote relay (isolated)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=myremote
+Group=myremote
+WorkingDirectory=/opt/my-remote/current
+EnvironmentFile=/etc/my-remote/relay.env
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5123
+ExecStart=/opt/my-remote/current/MyRemote.Server
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=true
+MemoryDenyWriteExecute=false
+ReadWritePaths=/tmp
+UMask=0077
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target
