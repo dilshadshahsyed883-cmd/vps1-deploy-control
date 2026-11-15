@@ -130,6 +130,13 @@ class HeygenStudioTest(unittest.TestCase):
             "audio": ("speech.wav", b"RIFF\x10\x00\x00\x00WAVEaudio", "audio/wav"),
         }
 
+    def test_heygen_page_renders_one_studio_heading(self):
+        self.login()
+        page = self.client.get("/heygen-studio/")
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(page.text.count('<h2 id="hg-heading">HeyGen Studio</h2>'), 1)
+        self.assertNotIn('<h1>HeyGen Studio</h1>', page.text)
+
     def test_admin_create_job_then_stream_and_manage(self):
         self.login()
         headers = self.token()

@@ -200,7 +200,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 </header>
 {% elif page=='user_management' %}
 <header><div><h1>User Management</h1></div></header>
-{% elif page != 'cloud_render' %}
+{% elif page not in ['cloud_render', 'heygen_studio'] %}
 <header class="{% if page in ['script_work','algrow_voice','auto_caption_studio','auto_caption_live'] %}story-suite-header{% endif %}"><div><h1>{% block title %}{% endblock %}</h1><p>{% block subtitle %}{% endblock %}</p></div></header>
 {% endif %}
 {% if page in ['script_work','algrow_voice'] %}
