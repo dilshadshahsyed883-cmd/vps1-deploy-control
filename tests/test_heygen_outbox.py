@@ -117,6 +117,26 @@ class OutboxTest(unittest.TestCase):
         new.dispatch("alice", job_id)
         self.assertEqual(new.snapshot("alice")[job_id]["state"], "sent")
 
+    def test_completed_gpu_job_mirrors_without_open_browser(self):
+        job_id = self.queued()
+        self.box.dispatch("alice", job_id)
+        self.assertEqual(self.box.snapshot("alice")[job_id]["state"], "sent")
+        completed = []
+        self.transport = httpx.MockTransport(lambda request:
+            httpx.Response(200, json={"status": "completed"}))
+        watcher = HeygenOutbox(self.root, self.connection, self.client, auto_start=False,
+                              on_complete=lambda owner, job: completed.append((owner, job)),
+                              cached=lambda owner, job: False)
+        self.addCleanup(watcher.close)
+        watcher.observe_completed()
+        self.assertEqual(completed, [("alice", job_id)])
+        cached_watcher = HeygenOutbox(self.root, self.connection, self.client, auto_start=False,
+                                     on_complete=lambda owner, job: completed.append((owner, job)),
+                                     cached=lambda owner, job: True)
+        self.addCleanup(cached_watcher.close)
+        cached_watcher.observe_completed()
+        self.assertEqual(len(completed), 1)
+
     def test_unconfigured_worker_inputs_are_private_and_persisted(self):
         job_id = self.queued()
         path = self.box.folder("alice", job_id)
