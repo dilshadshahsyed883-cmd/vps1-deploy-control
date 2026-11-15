@@ -16,6 +16,7 @@ on:
       - 'tests/test_scene_native_sidebar_role.js'
       - 'tests/test_experiment_auto_script_navigation.py'
       - '.github/workflows/vps1-heygen-studio-ci.yml'
+      - '.github/workflows/vps1-heygen-studio-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -55,4 +56,13 @@ jobs:
           assert Path("apps/scene-builder/part01/static/heygen_studio.js").exists()
           assert Path("apps/scene-builder/part01/templates/heygen_studio.html").exists()
           print("VPS1_OWNS_UI=YES; HEYGEN_REPO_OWNS_GPU_IMAGE=YES")
+          release=Path(".github/workflows/vps1-heygen-studio-release.yml").read_text()
+          assert "[vps1-heygen-studio-release]" in release
+          assert "vps1-production-deploy rollback" in release
+          assert "scene-builder" in release
+          assert "environment: production" in release
+          assert "github.actor == 'dilshadshahsyed883-cmd'" in release
+          assert "HEYGEN_GPU_RENDER=NOT_YET_TESTED" in release
+          assert "ghcr.io/" not in release
+          print("HEYGEN_GUARDED_RELEASE=PASS; GPU_PROVISIONING=NONE")
           PY
