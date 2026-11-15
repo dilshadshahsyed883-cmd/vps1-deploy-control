@@ -185,7 +185,7 @@ class ShortSheetMasterContracts(unittest.TestCase):
         channel = self.data()
         self.assertEqual(channel["proxy_port"], "10010")
         self.assertEqual(channel["status"], "ACTIVE")  # old operational state not guessed
-        self.assertEqual(channel["sheet_status"], "CHANNEL WARMUP")
+        self.assertEqual(channel["sheet_status"], "Channel Warmup")
         with self.store.connect() as conn:
             receipt = conn.execute("SELECT last_sync_status FROM sheet_sources WHERE id=1").fetchone()[0]
             self.assertIn("master=1", receipt)
@@ -201,7 +201,7 @@ class ShortSheetMasterContracts(unittest.TestCase):
             new = conn.execute("SELECT status,sheet_status,proxy_port FROM channels "
                                "WHERE sheet_row_key='sr:7'").fetchone()
             self.assertIsNotNone(new)
-            self.assertEqual(tuple(new), ("INACTIVE", "REVIEW LATER", "10010"))
+            self.assertEqual(tuple(new), ("INACTIVE", "Review Later", "10010"))
             self.assertEqual(conn.execute("SELECT status FROM videos WHERE id=7").fetchone()[0], "QUEUED")
 
     def test_recognized_sheet_status_remains_authoritative(self):
