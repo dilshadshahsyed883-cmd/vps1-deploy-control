@@ -39,6 +39,9 @@ class SheetRow:
     notes: str
     token_file_path: str
     token_exists: bool
+    # Distinguish an omitted Sheet column from an explicitly blank cell.
+    # Only explicitly supplied configuration columns may overwrite VPS data.
+    present_fields: frozenset[str] = frozenset()
 
 
 def extract_sheet_id(value: str) -> str:
@@ -442,6 +445,18 @@ def rows_to_sheet_rows(raw_rows: Iterable[Dict[str, str]], json_folder: str) -> 
         proxy = parse_proxy_line(ip_raw)
         sheet_status = pick(row, "status", "active")
         status = normalize_status(sheet_status, token_status)
+        columns = {
+            "proxy": ("ip", "proxy", "upload_proxy", "proxy_line"),
+            "browser_profile": ("browser_profile", "profile", "ix_profile", "browser_profile_name", "browser"),
+            "group": ("group", "category", "niche"),
+            "status": ("status", "active"),
+            "channel_link": ("channel_link", "channel_link_s", "channel_url", "link", "url"),
+            "sr": ("sr", "serial", "serial_no", "serial_number"),
+        }
+        present_fields = frozenset(
+            field for field, aliases in columns.items()
+            if any(normalize_header(alias) in row for alias in aliases)
+        )
         parsed.append(SheetRow(
             key=key,
             sr=sr,
@@ -465,5 +480,6 @@ def rows_to_sheet_rows(raw_rows: Iterable[Dict[str, str]], json_folder: str) -> 
             notes=pick(row, "notes", "note"),
             token_file_path=token_file_path,
             token_exists=token_exists,
+            present_fields=present_fields,
         ))
     return parsed
