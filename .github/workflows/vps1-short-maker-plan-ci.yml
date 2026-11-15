@@ -30,6 +30,7 @@ on:
       - 'tests/test_short_maker_plan_ui.py'
       - 'tests/test_short_maker_ready_video_uploads.py'
       - 'tests/test_short_maker_verified_inventory.py'
+      - 'tests/test_short_maker_folder_media_delete.py'
       - '.github/workflows/vps1-short-maker-plan-ci.yml'
   workflow_dispatch:
 # Only one staging run per PR. Superseded #635 commits must not occupy
@@ -80,6 +81,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_short_maker_profile_media.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_ready_video_uploads.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_verified_inventory.py' -v
+          python -m unittest discover -s tests -p 'test_short_maker_folder_media_delete.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_handover.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_resume.py' -v
           python -m unittest discover -s tests -p 'test_short_maker_multi_submit.py' -v

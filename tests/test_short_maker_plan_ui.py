@@ -35,7 +35,7 @@ class ShortMakerLockedPlanUITests(unittest.TestCase):
     def test_no_unsafe_early_release_of_incomplete_features(self):
         self.assertIn('id="shortProfileSave" disabled', self.html)
         self.assertIn('id="foldersStartUpload" type="button" disabled', self.html)
-        self.assertIn("The existing empty-only delete API is not used for this workflow.", self.html)
+        self.assertIn("Use Manage media to select and permanently delete MP4s after one warning.", self.html)
         self.assertIn("Auto Script stays OFFLINE", self.html)
         self.assertIn("fetch('api/vps-folders'", self.html)
         self.assertIn('await loadOwnerFolderNames()', self.html)
