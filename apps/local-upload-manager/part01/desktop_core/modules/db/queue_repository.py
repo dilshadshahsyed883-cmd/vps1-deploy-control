@@ -1507,6 +1507,97 @@ class QueueRepository(BaseRepository):
             cur = conn.execute(f"DELETE FROM videos WHERE id IN ({marks})", removable)
             return int(cur.rowcount)
 
+    def delete_shortstudio_queue_jobs(self, video_ids: Iterable[int]) -> tuple[int, int]:
+        """Remove explicitly selected Short jobs without resetting upload evidence.
+
+        Caller must first authorize every ID against the signed-in Short owner.
+        PAUSED / WAITING_NETWORK jobs are removable only if unclaimed; a live
+        uploader cannot lose its row. Keep ledger receipts or AMBIGUOUS evidence
+        for interrupted media uploads, and retain source files and upload history.
+        Returns (removed, blocked).
+        """
+        ids = sorted({int(v) for v in video_ids if int(v) > 0})
+        if not ids:
+            return 0, 0
+        placeholders = ",".join("?" for _ in ids)
+        removable_statuses = (
+            "QUEUED", "SCHEDULED", "WAITING_SLOT", "PAUSED", "WAITING_NETWORK",
+            "FAILED", "UPLOADED", "PUBLISHED",
+        )
+        marks = ",".join("?" for _ in removable_statuses)
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                f"""SELECT * FROM videos WHERE id IN ({placeholders})
+                    AND auto_engine_profile_id IS NOT NULL
+                    AND status IN ({marks})""", (*ids, *removable_statuses)
+            ).fetchall()
+            removed = 0
+            for row in rows:
+                vid = int(row["id"])
+                # Check claim even for PAUSED: a still-live worker may be
+                # finishing or writing a resumable receipt right now.
+                if str(row["claim_worker_id"] or "").strip():
+                    continue
+                channel = int(row["channel_db_id"] or 0)
+                fingerprint = str(row["upload_fingerprint"] or "").strip()
+                ledger = None
+                if fingerprint:
+                    ledger = conn.execute(
+                        """SELECT state,youtube_video_id,youtube_url
+                           FROM upload_ledger
+                           WHERE channel_db_id=? AND upload_fingerprint=?""",
+                        (channel, fingerprint),
+                    ).fetchone()
+                state = str(ledger["state"] or "").upper() if ledger else ""
+                remote = any(str(row[key] or "").strip()
+                             for key in ("youtube_video_id", "youtube_url"))
+                if ledger:
+                    remote = remote or any(str(ledger[key] or "").strip()
+                                           for key in ("youtube_video_id", "youtube_url"))
+                completed = str(row["status"] or "").upper() in {"UPLOADED", "PUBLISHED"}
+                ambiguous = (
+                    str(row["recovery_state"] or "").upper() == "REVIEW_REQUIRED"
+                    or state in {"AMBIGUOUS", "MEDIA_IN_PROGRESS", "RESUMABLE"}
+                    or str(row["resumable_uri"] or "").strip()
+                    or int(row["upload_bytes_confirmed"] or 0) > 0
+                    or str(row["media_stage_state"] or "").upper() in {"RUNNING", "COMPLETE"}
+                    or str(row["pipeline_stage"] or "").upper() in {"MEDIA", "REMOTE_CREATED", "COMPLETE"}
+                )
+                # NEVER turn a completed upload/known remote into CANCELLED.
+                # A vanished queue row must not erase a remote upload receipt.
+                new_state = ("COMPLETED" if completed or state == "COMPLETED"
+                             else "REMOTE_CREATED" if remote or state == "REMOTE_CREATED"
+                             else "AMBIGUOUS" if ambiguous else "CANCELLED")
+                audit = (
+                    f"Short Uploader: user removed queue job #{vid}"
+                    f" ({str(row['status'] or '')}); remote/upload evidence"
+                    f" {'preserved as ' + new_state if new_state != 'CANCELLED' else 'has no known remote receipt'}."
+                    " Source media and permanent upload records retained."
+                )
+                if fingerprint and ledger:
+                    conn.execute(
+                        """UPDATE upload_ledger SET state=?, video_id=NULL,
+                           updated_at=CURRENT_TIMESTAMP
+                           WHERE channel_db_id=? AND upload_fingerprint=?""",
+                        (new_state, channel, fingerprint),
+                    )
+                cur = conn.execute(
+                    f"""DELETE FROM videos WHERE id=? AND auto_engine_profile_id IS NOT NULL
+                        AND status IN ({marks})
+                        AND (claim_worker_id IS NULL OR TRIM(claim_worker_id)='')""",
+                    (vid, *removable_statuses),
+                )
+                if not cur.rowcount:
+                    continue
+                conn.execute("DELETE FROM upload_logs WHERE video_id=?", (vid,))
+                conn.execute(
+                    "INSERT INTO upload_logs(video_id,level,message,progress) "
+                    "VALUES(NULL,'WARNING',?,0)", (audit,),
+                )
+                removed += 1
+            return removed, len(ids) - removed
+
     def clear_completed_auto_engine_jobs(self) -> int:
         """Clear completed Auto Engine rows from the Auto Engine queue table; does not touch media files."""
         with self.connect() as conn:
