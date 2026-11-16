@@ -303,8 +303,13 @@ class ExperimentGpuStudios:
             raise HTTPException(502, "GPU returned an invalid job response") from None
         job_id = checked_id(str(result.get("id") or result.get("job_id") or ""))
         with self.connection() as conn:
+            if conn.execute(
+                "SELECT 1 FROM gpu_jobs WHERE studio=? AND owner=? AND id=?",
+                (studio, owner, job_id)
+            ).fetchone():
+                raise HTTPException(409, "GPU worker reused a job ID; image mapping was not overwritten")
             conn.execute(
-                "INSERT OR IGNORE INTO gpu_jobs(studio,owner,id,status) VALUES(?,?,?,?)",
+                "INSERT INTO gpu_jobs(studio,owner,id,status) VALUES(?,?,?,?)",
                 (studio, owner, job_id, "queued")
             )
         return {"id": job_id, "status": "queued"}
