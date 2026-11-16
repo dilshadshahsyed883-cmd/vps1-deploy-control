@@ -132,6 +132,10 @@ class ImagenBatchQueue:
               job_id TEXT NOT NULL, media_index INTEGER NOT NULL, size INTEGER NOT NULL,
               sha256 TEXT NOT NULL, PRIMARY KEY(job_id,media_index)
             );
+            CREATE TABLE IF NOT EXISTS imagen_deleted_outputs (
+              job_id TEXT NOT NULL, media_index INTEGER NOT NULL,
+              PRIMARY KEY(job_id,media_index)
+            );
             """)
 
     @contextmanager
@@ -417,7 +421,10 @@ class ImagenBatchQueue:
                     exists = db.execute(
                         "SELECT 1 FROM imagen_single_media WHERE job_id=? AND media_index=?",
                         (job_id, index)).fetchone()
-                if exists:
+                with self.connect() as db:
+                    removed = db.execute("SELECT 1 FROM imagen_deleted_outputs WHERE job_id=? AND media_index=?",
+                                         (job_id, index)).fetchone()
+                if exists or removed:
                     continue
                 response = self.bridge.media("imagen", owner, job_id, index=index)
                 path = self._path("single", job_id, f"scene_{index+1:03d}")
@@ -478,6 +485,9 @@ class ImagenBatchQueue:
         if index < 0 or index > 7:
             return None
         with self.connect() as db:
+            if db.execute("SELECT 1 FROM imagen_deleted_outputs WHERE job_id=? AND media_index=?",
+                          (job_id, index)).fetchone():
+                raise HTTPException(404, "Output was deleted")
             batch = db.execute("""SELECT batch_id,prompt_id,sha256 FROM imagen_batch_items
                  WHERE remote_job_id=? AND state='saved'""", (job_id,)).fetchone()
             if batch and index == 0:
@@ -497,6 +507,148 @@ class ImagenBatchQueue:
             singles = db.execute("SELECT COUNT(*) FROM imagen_single_media WHERE job_id=?",
                                  (job_id,)).fetchone()[0]
         return max(batch, singles)
+
+
+    def visible_indices(self, job_id: str, count: int) -> list[int]:
+        """Preserve original output indices after individual deletions."""
+        try:
+            count = max(0, min(8, int(count or 0)))
+        except (TypeError, ValueError, OverflowError):
+            count = 0
+        with self.connect() as db:
+            singles = db.execute("SELECT media_index FROM imagen_single_media WHERE job_id=?",
+                                 (job_id,)).fetchall()
+            batch = db.execute("SELECT 1 FROM imagen_batch_items WHERE remote_job_id=? AND state='saved'",
+                               (job_id,)).fetchone()
+            hidden = db.execute("SELECT media_index FROM imagen_deleted_outputs WHERE job_id=?",
+                                (job_id,)).fetchall()
+        found = set(range(count)) | {row["media_index"] for row in singles}
+        if batch:
+            found.add(0)
+        return sorted((found - {row["media_index"] for row in hidden}) & set(range(8)))
+
+    @staticmethod
+    def _remove_file(path: Path):
+        if path.is_symlink():
+            raise HTTPException(409, "Cannot delete a linked image")
+        path.unlink(missing_ok=True)
+
+    def delete_output(self, owner: str, job_id: str, index: int):
+        self.bridge.require_job("imagen", owner, job_id)
+        if index < 0 or index > 7:
+            raise HTTPException(404, "Output not found")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT status FROM gpu_jobs WHERE studio='imagen' AND owner=? AND id=?",
+                             (owner, job_id)).fetchone()
+            terminal = ("completed", "succeeded", "done", "failed", "error", "cancelled", "canceled")
+            if row is None:
+                raise HTTPException(404, "Job not found")
+            if row["status"].lower() not in terminal:
+                raise HTTPException(409, "Finish or cancel the job before deleting an output")
+            if db.execute("SELECT 1 FROM imagen_deleted_outputs WHERE job_id=? AND media_index=?",
+                          (job_id, index)).fetchone():
+                raise HTTPException(404, "Output already deleted")
+            batch = db.execute("""
+                SELECT i.batch_id,i.prompt_id,i.state,i.lease_until FROM imagen_batch_items i
+                JOIN imagen_batches b ON b.id=i.batch_id
+                WHERE i.remote_job_id=? AND b.config_owner=?
+            """, (job_id, owner)).fetchone()
+            if batch:
+                if index != 0 or batch["state"] != "saved" or batch["lease_until"] > int(time.time()):
+                    raise HTTPException(409, "Batch output is not ready for deletion")
+                db.execute("""UPDATE imagen_batch_items SET state='deleted',size=0,sha256='',error=''
+                              WHERE batch_id=? AND prompt_id=?""",
+                           (batch["batch_id"], batch["prompt_id"]))
+                path = self._path("batch", batch["batch_id"], batch["prompt_id"])
+            else:
+                single = db.execute("SELECT lease_until FROM imagen_single_jobs WHERE job_id=? AND config_owner=?",
+                                    (job_id, owner)).fetchone()
+                if single and single["lease_until"] > int(time.time()):
+                    raise HTTPException(409, "VPS transfer in progress; retry shortly")
+                db.execute("DELETE FROM imagen_single_media WHERE job_id=? AND media_index=?",
+                           (job_id, index))
+                path = self._path("single", job_id, f"scene_{index+1:03d}")
+            db.execute("INSERT INTO imagen_deleted_outputs(job_id,media_index) VALUES(?,?)",
+                       (job_id, index))
+        self._remove_file(path)
+        return {"deleted": True, "job_id": job_id, "index": index}
+
+    def delete_job(self, owner: str, job_id: str):
+        """Delete a terminal job and any linked local images; never drop running work."""
+        self.bridge.require_job("imagen", owner, job_id)
+        files = []
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            status = db.execute("SELECT status FROM gpu_jobs WHERE studio='imagen' AND owner=? AND id=?",
+                                (owner, job_id)).fetchone()
+            if status is None:
+                raise HTTPException(404, "Job not found")
+            if status["status"].lower() not in (
+                "completed", "succeeded", "done", "failed", "error", "cancelled", "canceled"
+            ):
+                raise HTTPException(409, "Finish or cancel the GPU job before deleting it")
+            batch_items = db.execute("""
+                SELECT i.batch_id,i.prompt_id,i.state,i.lease_until FROM imagen_batch_items i
+                JOIN imagen_batches b ON b.id=i.batch_id
+                WHERE i.remote_job_id=? AND b.config_owner=?
+            """, (job_id, owner)).fetchall()
+            if any(x["state"] not in ("saved", "failed", "deleted") or
+                   x["lease_until"] > int(time.time()) for x in batch_items):
+                raise HTTPException(409, "Batch job is still active")
+            single = db.execute("SELECT lease_until FROM imagen_single_jobs WHERE job_id=? AND config_owner=?",
+                                (job_id, owner)).fetchone()
+            if single and single["lease_until"] > int(time.time()):
+                raise HTTPException(409, "VPS image transfer in progress; retry shortly")
+            files = [self._path("batch", x["batch_id"], x["prompt_id"])
+                     for x in batch_items if x["state"] == "saved"]
+            db.execute("""UPDATE imagen_batch_items SET state='deleted',size=0,sha256='',
+                          error='',remote_job_id=NULL WHERE remote_job_id=?
+                          AND batch_id IN (SELECT id FROM imagen_batches WHERE config_owner=?)""",
+                       (job_id, owner))
+            db.execute("DELETE FROM imagen_single_media WHERE job_id=?", (job_id,))
+            db.execute("DELETE FROM imagen_single_jobs WHERE job_id=? AND config_owner=?",
+                       (job_id, owner))
+            db.execute("DELETE FROM imagen_deleted_outputs WHERE job_id=?", (job_id,))
+            db.execute("DELETE FROM gpu_jobs WHERE studio='imagen' AND owner=? AND id=?",
+                       (owner, job_id))
+        for path in files:
+            self._remove_file(path)
+        directory = self.root / "single" / job_id
+        if directory.is_symlink():
+            raise HTTPException(409, "Cannot delete linked directory")
+        if directory.is_dir():
+            shutil.rmtree(directory)
+        return {"deleted": True, "job_id": job_id}
+
+    def delete_batch(self, owner: str, batch_id: str):
+        """Remove pending/terminal batch and saved files; active submissions are protected."""
+        self._get_batch(batch_id)
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            batch = db.execute("SELECT config_owner FROM imagen_batches WHERE id=?",
+                               (batch_id,)).fetchone()
+            if batch is None or batch["config_owner"] != owner:
+                raise HTTPException(404, "Batch not found")
+            items = db.execute(
+                "SELECT state,remote_job_id,lease_until FROM imagen_batch_items WHERE batch_id=?",
+                (batch_id,)
+            ).fetchall()
+            if any(row["state"] not in ("pending", "saved", "failed", "deleted") or
+                   row["lease_until"] > int(time.time()) for row in items):
+                raise HTTPException(409, "Batch has active GPU jobs; finish them before deleting")
+            for job_id in {row["remote_job_id"] for row in items if row["remote_job_id"]}:
+                db.execute("DELETE FROM imagen_deleted_outputs WHERE job_id=?", (job_id,))
+                db.execute("DELETE FROM gpu_jobs WHERE studio='imagen' AND owner=? AND id=?",
+                           (owner, job_id))
+            db.execute("DELETE FROM imagen_batch_items WHERE batch_id=?", (batch_id,))
+            db.execute("DELETE FROM imagen_batches WHERE id=?", (batch_id,))
+        directory = self.root / "batches" / batch_id
+        if directory.is_symlink():
+            raise HTTPException(409, "Cannot delete linked directory")
+        if directory.is_dir():
+            shutil.rmtree(directory)
+        return {"deleted": True, "batch_id": batch_id}
 
     def download_zip(self, batch_id, ids=None):
         self._get_batch(batch_id)
