@@ -35,8 +35,14 @@
     }
     for (const section of ["production", "jobs", ...(studio === "imagen" ? ["gallery"] : []), "models", "gpu"])
       $("eg-" + section).hidden = section !== name;
-    if (name === "jobs") refreshJobs();
-    if (name === "gallery") refreshGallery();
+    if (name === "jobs") {
+      refreshJobs();
+      if (studio === "imagen") refreshBatches();
+    }
+    if (name === "gallery") {
+      refreshGallery();
+      if (studio === "imagen") refreshBatchGallery();
+    }
   }
   for (const button of root.querySelectorAll("[data-eg-tab]"))
     button.addEventListener("click", () => tab(button.dataset.egTab));
@@ -150,7 +156,13 @@
     try {
       const detail = await api("/jobs/" + encodeURIComponent(job.id));
       status.textContent = detail.status || status.textContent;
-      if (detail.worker_error) {
+      if (detail.saved_to_vps) {
+        const saved = document.createElement("p");
+        saved.className = "eg-muted";
+        saved.textContent = detail.saved_to_vps + " PNG(s) saved permanently on VPS";
+        card.append(saved);
+      }
+      if (detail.worker_error && !detail.saved_to_vps) {
         const message = document.createElement("p");
         message.className = "eg-muted";
         message.textContent = "Worker status unavailable: " + detail.worker_error;
@@ -248,10 +260,198 @@
       }
     } catch (error) { say(error.message, true); }
   }
+
+  // Admin-only Imagen batch queue. The server executes jobs without a live browser.
+  if (studio === "imagen") {
+    $("eg-batch-create").addEventListener("submit", async event => {
+      event.preventDefault();
+      const button = $("eg-batch-submit");
+      button.disabled = true;
+      try {
+        const body = {
+          prompts: $("eg-batch-prompts").value,
+          width: Number($("eg-width").value),
+          height: Number($("eg-height").value)
+        };
+        const result = await api("/batches", {method:"POST", json:true, body});
+        say("Batch " + result.batch_id.slice(0, 12) + " queued with " +
+          result.count + " prompt(s). PNG names will match Prompt IDs.");
+        $("eg-batch-prompts").value = "";
+        tab("jobs");
+      } catch (error) { say(error.message, true); }
+      finally { button.disabled = false; }
+    });
+    $("eg-refresh-batches").addEventListener("click", refreshBatches);
+  }
+
+  function batchUrl(id) {
+    return apiRoot + "/batches/" + encodeURIComponent(id);
+  }
+
+  async function openBatchDetails(batchId, target) {
+    target.replaceChildren();
+    try {
+      const details = await api("/batches/" + encodeURIComponent(batchId));
+      const actions = document.createElement("div");
+      actions.className = "eg-job-actions";
+      const selectedZip = document.createElement("button");
+      selectedZip.type = "button";
+      selectedZip.className = "eg-btn secondary";
+      selectedZip.textContent = "Download Selected ZIP";
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "eg-btn secondary";
+      retry.textContent = "Retry Failed";
+      actions.append(selectedZip, retry);
+      target.append(actions);
+
+      const visible = details.items.slice(0, 250);
+      const grid = document.createElement("div");
+      grid.className = "eg-batch-items";
+      const failed = [];
+      for (const item of visible) {
+        const row = document.createElement("div");
+        row.className = "eg-batch-item";
+        const check = document.createElement("input");
+        check.type = "checkbox";
+        check.value = item.prompt_id;
+        check.disabled = item.state !== "saved";
+        const title = document.createElement("span");
+        title.textContent = item.filename + " — " + item.state;
+        title.title = item.prompt;
+        row.append(check, title);
+        if (item.state === "saved")
+          row.append(link("PNG", batchUrl(batchId) + "/media/" +
+            encodeURIComponent(item.prompt_id)));
+        if (item.state === "failed") failed.push(item.prompt_id);
+        if (item.error) {
+          const problem = document.createElement("small");
+          problem.textContent = item.error;
+          row.append(problem);
+        }
+        grid.append(row);
+      }
+      target.append(grid);
+      if (details.items.length > visible.length) {
+        const note = document.createElement("p");
+        note.className = "eg-muted";
+        note.textContent = "Showing first 250 prompts. Download All Saved ZIP includes the entire batch.";
+        target.append(note);
+      }
+      selectedZip.addEventListener("click", () => {
+        const ids = [...grid.querySelectorAll('input[type="checkbox"]:checked')].map(x => x.value);
+        if (!ids.length) { say("Select at least one saved PNG first.", true); return; }
+        window.location.assign(batchUrl(batchId) + "/download?ids=" +
+          encodeURIComponent(ids.join(",")));
+      });
+      retry.disabled = failed.length === 0;
+      retry.addEventListener("click", async () => {
+        try {
+          const allFailed = details.items.filter(x => x.state === "failed")
+            .map(x => x.prompt_id);
+          const result = await api("/batches/" + encodeURIComponent(batchId) + "/retry",
+            {method:"POST", json:true, body:{ids:allFailed}});
+          say("Retrying " + result.retrying + " failed prompt(s).");
+          refreshBatches();
+        } catch (error) { say(error.message, true); }
+      });
+    } catch (error) {
+      const p = document.createElement("p");
+      p.className = "eg-muted";
+      p.textContent = error.message;
+      target.append(p);
+    }
+  }
+
+  let batchesLoading = false;
+  async function refreshBatches() {
+    if (studio !== "imagen" || batchesLoading) return;
+    batchesLoading = true;
+    const panel = $("eg-batches");
+    try {
+      const result = await api("/batches");
+      panel.replaceChildren();
+      if (!result.items.length) {
+        const p = document.createElement("p");
+        p.className = "eg-muted";
+        p.textContent = "No batch prompts submitted yet.";
+        panel.append(p);
+      }
+      for (const item of result.items.slice(0, 20)) {
+        const card = document.createElement("div");
+        card.className = "eg-job";
+        const head = document.createElement("h4");
+        head.textContent = "Batch " + item.id.slice(0, 12) + " · " +
+          item.saved + "/" + item.total + " saved to VPS" +
+          (item.failed ? " · " + item.failed + " failed" : "");
+        const buttons = document.createElement("div");
+        buttons.className = "eg-job-actions";
+        const inspect = document.createElement("button");
+        inspect.type = "button";
+        inspect.className = "eg-btn secondary";
+        inspect.textContent = "View Prompts / Select Images";
+        inspect.addEventListener("click", () => {
+          const pane = card.querySelector(".eg-batch-details");
+          pane.hidden = !pane.hidden;
+          if (!pane.hidden) openBatchDetails(item.id, pane);
+        });
+        buttons.append(inspect);
+        if (item.saved > 0) buttons.append(
+          link("Download All Saved ZIP", batchUrl(item.id) + "/download"));
+        const details = document.createElement("div");
+        details.className = "eg-batch-details";
+        details.hidden = true;
+        card.append(head, buttons, details);
+        panel.append(card);
+      }
+    } catch (error) { say("Batch refresh: " + error.message, true); }
+    finally { batchesLoading = false; }
+  }
+
+  async function refreshBatchGallery() {
+    if (studio !== "imagen") return;
+    const gallery = $("eg-batch-gallery");
+    try {
+      const result = await api("/batches");
+      gallery.replaceChildren();
+      let count = 0;
+      for (const batch of result.items.slice(0, 5)) {
+        if (!batch.saved || count >= 40) continue;
+        const details = await api("/batches/" + encodeURIComponent(batch.id));
+        for (const item of details.items) {
+          if (item.state !== "saved" || count >= 40) continue;
+          const media = batchUrl(batch.id) + "/media/" + encodeURIComponent(item.prompt_id);
+          const tile = document.createElement("figure");
+          const photo = document.createElement("img");
+          photo.src = media + "?preview=1";
+          photo.loading = "lazy";
+          photo.alt = item.prompt_id;
+          const caption = document.createElement("figcaption");
+          caption.textContent = item.filename;
+          tile.append(photo, caption, link("Download", media));
+          gallery.append(tile);
+          count++;
+        }
+      }
+      if (!count) {
+        const p = document.createElement("p");
+        p.className = "eg-muted";
+        p.textContent = "No saved batch images yet.";
+        gallery.append(p);
+      }
+    } catch (error) { say("VPS gallery: " + error.message, true); }
+  }
+
   if (studio === "imagen") $("eg-refresh-gallery").addEventListener("click", refreshGallery);
-  $("eg-refresh-jobs").addEventListener("click", refreshJobs);
+  $("eg-refresh-jobs").addEventListener("click", () => {
+    refreshJobs();
+    if (studio === "imagen") refreshBatches();
+  });
   setInterval(() => {
-    if (activeTab === "jobs" && !document.hidden) refreshJobs();
+    if (activeTab === "jobs" && !document.hidden) {
+      refreshJobs();
+      if (studio === "imagen") refreshBatches();
+    }
   }, 15000);
   config();
 })();

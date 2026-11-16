@@ -32,12 +32,17 @@ def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_
     if method == "POST" and path in {
         "/api/experiment-gpu/imagen/config",
         "/api/experiment-gpu/imagen/jobs",
+        "/api/experiment-gpu/imagen/batches",
         "/api/experiment-gpu/voice-clone/config",
         "/api/experiment-gpu/voice-clone/jobs",
     }:
         return True
     if method == "POST" and re.fullmatch(
         r"/api/experiment-gpu/imagen/jobs/[A-Za-z0-9_-]{1,128}/cancel", path
+    ):
+        return True
+    if method == "POST" and re.fullmatch(
+        r"/api/experiment-gpu/imagen/batches/[0-9a-f]{32}/retry", path
     ):
         return True
     # HeyGen Studio: allow only exact owner-authenticated and CSRF-protected

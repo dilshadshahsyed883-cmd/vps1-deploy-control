@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="/static/experiment_gpu_studio.css?v=20261116-1">
 <section id="eg-root" class="eg" data-studio="{{ studio }}" data-csrf="{{ csrf_token }}">
   <header class="eg-heading">
-    <div><div class="eg-eyebrow">EXPERIMENT STUDIO / OWNER-SCOPED</div>
+    <div><div class="eg-eyebrow">EXPERIMENT STUDIO / {% if studio == 'imagen' %}ADMIN ONLY{% else %}OWNER-SCOPED{% endif %}</div>
       <h2>{{ studio_title }}</h2>
       <p>{% if studio == 'imagen' %}Generate and edit AI images with the deployed Imagen model.{% else %}Generate cloned narration with the deployed Voice Clone model.{% endif %}</p>
     </div>
@@ -35,6 +35,16 @@
       <p class="eg-muted">Editing requires a model that supports edit jobs. Qwen Image Edit uses the reference image dimensions; width and height apply to generation models.</p>
       <button class="eg-btn primary" type="submit" id="eg-submit">Generate Images</button>
     </form>
+    <form class="eg-card" id="eg-batch-create">
+      <h3>Batch Prompts (1 prompt = 1 PNG)</h3>
+      <p class="eg-muted">Admin only. Enter one <b>PromptID: Prompt text</b> per line.
+        Unique IDs become the saved filenames. Queue continues on VPS if the browser closes or Salad sleeps.</p>
+      <label for="eg-batch-prompts">Batch prompts</label>
+      <textarea id="eg-batch-prompts" rows="9" maxlength="262144" required
+        placeholder="prompt1: A cinematic mountain landscape at sunrise&#10;prompt2: A luxury perfume bottle on a dark background&#10;prompt3: A cute panda astronaut"></textarea>
+      <p class="eg-muted">Maximum 1000 lines. Uses the width and height settings above. Edits are available only in single-image mode.</p>
+      <button type="submit" class="eg-btn primary" id="eg-batch-submit">Add Batch to GPU Queue</button>
+    </form>
     {% else %}
     <form class="eg-card" id="eg-create">
       <h3>Clone a Voice / Generate Speech</h3>
@@ -63,12 +73,25 @@
         <button type="button" class="eg-btn secondary" id="eg-refresh-jobs">Refresh</button></div>
       <div id="eg-job-list" class="eg-job-list"><p class="eg-muted">No jobs submitted.</p></div>
     </div>
+    {% if studio == 'imagen' %}
+    <div class="eg-card">
+      <div class="eg-row">
+        <div><h3>Batch Queue &amp; Saved VPS Images</h3>
+          <p class="eg-muted">All saved PNGs remain available even after Salad shuts down.</p></div>
+        <button class="eg-btn secondary" type="button" id="eg-refresh-batches">Refresh Batches</button>
+      </div>
+      <div id="eg-batches" class="eg-job-list"><p class="eg-muted">No batches submitted.</p></div>
+    </div>
+    {% endif %}
   </section>
   {% if studio == 'imagen' %}
   <section class="eg-section" id="eg-gallery" hidden>
     <div class="eg-card"><div class="eg-row"><h3>Generated Image Gallery</h3><button id="eg-refresh-gallery" class="eg-btn secondary" type="button">Refresh</button></div>
-      <p class="eg-muted">Verified images are loaded from your authenticated GPU output gateway; no external image URLs are exposed.</p>
+      <p class="eg-muted">Completed images are automatically saved on VPS. Older GPU-only outputs may disappear after container restarts.</p>
       <div class="eg-gallery" id="eg-gallery-list"><p class="eg-muted">No images yet.</p></div>
+      <h3 style="margin-top:22px">Saved VPS Batch Gallery</h3>
+      <p class="eg-muted">Files here are read from VPS storage, without connecting to Salad.</p>
+      <div class="eg-gallery" id="eg-batch-gallery"><p class="eg-muted">No saved batch images yet.</p></div>
     </div>
   </section>
   {% endif %}
@@ -113,5 +136,5 @@
     </form>
   </section>
 </section>
-<script defer src="/static/experiment_gpu_studio.js?v=20261116-1"></script>
+<script defer src="/static/experiment_gpu_studio.js?v=20261116-batch-1"></script>
 {% endblock %}

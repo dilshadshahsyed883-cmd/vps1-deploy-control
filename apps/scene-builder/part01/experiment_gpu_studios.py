@@ -20,6 +20,8 @@ from fastapi import HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
+from experiment_imagen_batch import ImagenBatchQueue
+
 KINDS = ("imagen", "voice-clone")
 IDS = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 SUPPORTED_IMAGE = re.compile(r"^ghcr[.]io/dilshadshahsyed883-cmd/(imagen|voice_clone):[A-Za-z0-9_.-]+$")
@@ -301,8 +303,13 @@ class ExperimentGpuStudios:
             raise HTTPException(502, "GPU returned an invalid job response") from None
         job_id = checked_id(str(result.get("id") or result.get("job_id") or ""))
         with self.connection() as conn:
+            if conn.execute(
+                "SELECT 1 FROM gpu_jobs WHERE studio=? AND owner=? AND id=?",
+                (studio, owner, job_id)
+            ).fetchone():
+                raise HTTPException(409, "GPU worker reused a job ID; image mapping was not overwritten")
             conn.execute(
-                "INSERT OR IGNORE INTO gpu_jobs(studio,owner,id,status) VALUES(?,?,?,?)",
+                "INSERT INTO gpu_jobs(studio,owner,id,status) VALUES(?,?,?,?)",
                 (studio, owner, job_id, "queued")
             )
         return {"id": job_id, "status": "queued"}
@@ -419,6 +426,16 @@ class ExperimentGpuStudios:
 
 def register_experiment_gpu_studios(app, templates, root, require_login, transport=None):
     bridge = ExperimentGpuStudios(Path(root), transport=transport)
+    imagen_queue = ImagenBatchQueue(bridge)
+    @app.on_event("startup")
+    def start_imagen_queue():
+        imagen_queue.start()
+
+    @app.on_event("shutdown")
+    def stop_imagen_queue():
+        imagen_queue.stop()
+
+    bridge.imagen_queue = imagen_queue
 
     def owner(request: Request) -> str:
         require_login(request)
@@ -426,6 +443,12 @@ def register_experiment_gpu_studios(app, templates, root, require_login, transpo
         if not username:
             raise HTTPException(401, "Login required")
         return username
+
+    def admin(request: Request) -> str:
+        user = owner(request)
+        if not bool(request.session.get("is_admin")):
+            raise HTTPException(403, "Imagen batch storage requires administrator access")
+        return user
 
     def verify_csrf(request: Request, studio: str):
         key = "experiment_gpu_csrf_" + studio
@@ -496,7 +519,10 @@ def register_experiment_gpu_studios(app, templates, root, require_login, transpo
             reference = {"data": raw}
         if studio == "voice-clone" and reference is None:
             raise HTTPException(422, "Provide a voice reference WAV")
-        return await run_in_threadpool(bridge.create, studio, user, data, reference=reference)
+        result = await run_in_threadpool(bridge.create, studio, user, data, reference=reference)
+        if studio == "imagen" and bool(request.session.get("is_admin")):
+            imagen_queue.track_single(user, result["id"])
+        return result
 
     @app.get("/api/experiment-gpu/{studio}/jobs")
     def listing(request: Request, studio: str):
@@ -508,7 +534,16 @@ def register_experiment_gpu_studios(app, templates, root, require_login, transpo
     def status(request: Request, studio: str, job_id: str):
         if studio not in KINDS:
             raise HTTPException(404, "Unknown studio")
-        return bridge.status(studio, owner(request), job_id)
+        user = owner(request)
+        result = bridge.status(studio, user, job_id)
+        if studio == "imagen":
+            saved = imagen_queue.saved_count(job_id)
+            if saved:
+                result["saved_to_vps"] = saved
+                result["output_count"] = max(saved, result.get("output_count") or 0)
+                if result.get("worker_error") and result.get("status") in ("completed", "queued"):
+                    result["status"] = "completed"
+        return result
 
     @app.post("/api/experiment-gpu/{studio}/jobs/{job_id}/cancel")
     def cancel(request: Request, studio: str, job_id: str):
@@ -522,6 +557,69 @@ def register_experiment_gpu_studios(app, templates, root, require_login, transpo
     def media(request: Request, studio: str, job_id: str, index: int = 0, preview: bool = False):
         if studio not in KINDS:
             raise HTTPException(404, "Unknown studio")
-        return bridge.media(studio, owner(request), job_id, index=index, preview=preview)
+        user = owner(request)
+        if studio == "imagen":
+            bridge.require_job(studio, user, job_id)
+            saved = imagen_queue.local_job_media(job_id, index, preview=preview)
+            if saved is not None:
+                return saved
+        return bridge.media(studio, user, job_id, index=index, preview=preview)
+
+
+    @app.post("/api/experiment-gpu/imagen/batches", status_code=202)
+    async def submit_imagen_batch(request: Request):
+        user = admin(request)
+        verify_csrf(request, "imagen")
+        if int(request.headers.get("content-length", "0") or "0") > 270000:
+            raise HTTPException(413, "Batch text exceeds 256 KB")
+        body = await request.body()
+        if len(body) > 270000:
+            raise HTTPException(413, "Batch text exceeds 256 KB")
+        try:
+            data = json.loads(body)
+        except (ValueError, UnicodeDecodeError):
+            raise HTTPException(422, "Invalid batch JSON") from None
+        if not isinstance(data, dict):
+            raise HTTPException(422, "Batch request must be an object")
+        return imagen_queue.submit(user, data.get("prompts"), data.get("width", 1024),
+                                   data.get("height", 576))
+
+    @app.get("/api/experiment-gpu/imagen/batches")
+    def list_imagen_batches(request: Request):
+        admin(request)
+        return imagen_queue.list_batches()
+
+    @app.get("/api/experiment-gpu/imagen/batches/{batch_id}")
+    def imagen_batch_details(request: Request, batch_id: str):
+        admin(request)
+        return imagen_queue.details(batch_id)
+
+    @app.post("/api/experiment-gpu/imagen/batches/{batch_id}/retry")
+    async def retry_imagen_batch(request: Request, batch_id: str):
+        admin(request)
+        verify_csrf(request, "imagen")
+        body = await request.body()
+        if len(body) > 100000:
+            raise HTTPException(413, "Too many selected IDs")
+        try:
+            data = json.loads(body)
+        except ValueError:
+            raise HTTPException(422, "Invalid retry request") from None
+        if not isinstance(data, dict):
+            raise HTTPException(422, "Invalid retry request")
+        return imagen_queue.retry(batch_id, data.get("ids"))
+
+    @app.get("/api/experiment-gpu/imagen/batches/{batch_id}/media/{prompt_id}")
+    def imagen_batch_media(request: Request, batch_id: str, prompt_id: str,
+                           preview: bool = False):
+        admin(request)
+        return imagen_queue.batch_media(batch_id, prompt_id, preview=preview)
+
+    @app.get("/api/experiment-gpu/imagen/batches/{batch_id}/download")
+    def download_imagen_batch(request: Request, batch_id: str, ids: str | None = None):
+        admin(request)
+        if ids is not None and len(ids) > 65000:
+            raise HTTPException(413, "Selection too large")
+        return imagen_queue.download_zip(batch_id, ids.split(",") if ids is not None else None)
 
     return bridge
