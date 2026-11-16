@@ -150,6 +150,41 @@ class ImagenBatchTests(unittest.TestCase):
         self.assertEqual(len(self.submissions), 20, "No duplicate remote job submissions")
         self.assertTrue((queue.root / "batches" / batch_id / "p19.png").exists())
 
+    def test_rolling_refill_starts_next_gpu_job_before_all_eight_downloads(self):
+        """Regression for the 6-10s pause after every eighth Sana image."""
+        base = "/api/experiment-gpu/imagen"
+        created = self.client.post(base + "/batches", headers=self.csrf,
+            json={"prompts": "\n".join(f"p{i}: landscape {i}" for i in range(16))})
+        self.assertEqual(created.status_code, 202)
+        batch_id = created.json()["batch_id"]
+        queue = self.bridge.imagen_queue
+        queue.tick()  # Fill first eight; GPU jobs now ready to collect.
+        self.assertEqual(len(self.submissions), 8)
+
+        observed = []
+        original_transport = self.bridge.transport
+        def trace_requests(request):
+            if request.method == "POST" and request.url.path == "/jobs":
+                observed.append("submit")
+            if request.method == "GET" and request.url.path.endswith("/scene_001.png"):
+                observed.append("download")
+            return original_transport.handle_request(request)
+        self.bridge.transport = httpx.MockTransport(trace_requests)
+        queue.tick()
+        self.assertEqual(len(self.submissions), 16)
+        states = [item["state"] for item in queue.details(batch_id)["items"]]
+        self.assertEqual(states.count("saved"), 8)
+        self.assertEqual(states.count("submitted"), 8)
+        # The old algorithm downloaded all eight PNGs before any new POST.
+        # New rolling refill submits one replacement after the first output.
+        self.assertEqual(observed[:4],
+                         ["download", "submit", "download", "submit"])
+        queue.tick()
+        self.assertEqual(len(self.submissions), 16)
+        self.assertEqual(
+            [item["state"] for item in queue.details(batch_id)["items"]],
+            ["saved"] * 16)
+
     def test_gpu_unavailable_stops_new_batch_submissions_temporarily(self):
         base = "/api/experiment-gpu/imagen"
         result = self.client.post(base + "/batches", headers=self.csrf,
