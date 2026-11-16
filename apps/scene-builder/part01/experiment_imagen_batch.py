@@ -8,6 +8,7 @@ lease prevents duplicate processing when more than one web process is running.
 from __future__ import annotations
 
 import hashlib
+from contextlib import contextmanager
 import io
 import os
 import re
@@ -133,12 +134,17 @@ class ImagenBatchQueue:
             );
             """)
 
+    @contextmanager
     def connect(self):
         db = sqlite3.connect(self.bridge.db, timeout=15)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA busy_timeout=15000")
         db.execute("PRAGMA foreign_keys=ON")
-        return db
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def start(self):
         if self.thread and self.thread.is_alive():
