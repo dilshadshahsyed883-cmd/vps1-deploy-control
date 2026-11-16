@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'apps/scene-builder/part01/experiment_gpu_studios.py'
+      - 'apps/scene-builder/part01/experiment_imagen_batch.py'
       - 'apps/scene-builder/part01/precutover_policy.py'
       - 'apps/scene-builder/part01/templates/experiment_gpu_studio.html'
       - 'apps/scene-builder/part01/static/experiment_gpu_studio.*'
@@ -13,6 +14,7 @@ on:
       - 'apps/scene-builder/part01/static/heygen_studio.*'
       - 'apps/scene-builder/part01/static/vps1_native_site_shell.js'
       - 'tests/test_experiment_gpu_studios.py'
+      - 'tests/test_experiment_imagen_batch.py'
       - 'tests/test_experiment_four_studio_layout.py'
   workflow_dispatch:
 jobs:
@@ -29,6 +31,9 @@ jobs:
       - name: Compile backend and run isolated owner/auth/worker tests
         run: |
           python -m py_compile apps/scene-builder/part01/experiment_gpu_studios.py
+          python -m py_compile apps/scene-builder/part01/experiment_imagen_batch.py
           python -m py_compile apps/scene-builder/part01/precutover_policy.py
           python -m unittest discover -s tests -p 'test_experiment_gpu_studios.py' -v
+          python -m unittest discover -s tests -p 'test_experiment_imagen_batch.py' -v
+          node --check apps/scene-builder/part01/static/experiment_gpu_studio.js
           python -m unittest discover -s tests -p 'test_experiment_four_studio_layout.py' -v
