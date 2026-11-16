@@ -38,8 +38,9 @@
       button.classList.toggle("active", selected);
       button.setAttribute("aria-selected", String(selected));
     });
-    ["create", "jobs", "gpu"].forEach(item => $("hg-" + item).hidden = item !== name);
+    ["create", "jobs", "models", "gpu"].forEach(item => $("hg-" + item).hidden = item !== name);
     if (name === "jobs") { refreshJobs(); refreshQueue(); }
+    if (name === "models") refreshModel();
   }
   root.querySelectorAll(".hg-tabs button").forEach(button => button.addEventListener("click", () => tab(button.dataset.tab)));
   $("hg-view-jobs").addEventListener("click", () => tab("jobs"));
@@ -85,6 +86,16 @@
       await loadConfig();
     } catch (e) { message(e.message, true); }
   });
+  async function refreshModel() {
+    const info = $("hg-model-details");
+    try {
+      const config = await api("/config");
+      $("hg-model-image").value = config.image || "Not reported";
+      const status = await api("/engine");
+      info.textContent = JSON.stringify({engine:status.engine || null, models_ready:!!status.models_ready, entrypoint_found:!!status.entrypoint_found, worker_report:status}, null, 2);
+    } catch (e) { info.textContent = "Worker unavailable or not configured: " + e.message; }
+  }
+  $("hg-refresh-model").addEventListener("click", refreshModel);
   $("hg-test").addEventListener("click", async () => {
     $("hg-test").disabled = true;
     $("hg-engine").hidden = true;

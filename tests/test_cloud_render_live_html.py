@@ -46,7 +46,7 @@ class CloudRenderHtmlTest(unittest.TestCase):
         res = self.client.get("/cloud-render/")
         self.assertEqual(res.status_code,200)
         self.assertIn("text/html",res.headers.get("content-type",""))
-        for marker in ("Cloud Render", "GPU Config", "Media", 'data-tab="gpu"', 'data-tab="media"'):
+        for marker in ("Concat", "GPU Config", "Media", 'data-tab="gpu"', 'data-tab="media"'):
             self.assertIn(marker,res.text)
         self.assertIn('href="/cloud-render/"',res.text)
         tabs = re.findall(r'data-tab="([^"]+)" aria-selected="(true|false)"', res.text)
@@ -57,9 +57,9 @@ class CloudRenderHtmlTest(unittest.TestCase):
         self.assertEqual(res.text.count('data-tab="media"'),1)
         # Cloud Render owns its page heading and inner tabs; not Video Studio's shell.
         self.assertNotIn('<nav data-video-studio-subnav="1"', res.text)
-        self.assertNotIn('<h1>Cloud Render</h1>', res.text)
+        self.assertNotIn('<h1>Concat</h1>', res.text)
         self.assertEqual(res.text.count('id="cloud-heading"'), 1)
-        self.assertIn('href="/cloud-render/">Cloud Render</a>', res.text)
+        self.assertIn('href="/cloud-render/">Concat</a>', res.text)
         self.assertNotIn('class="active" aria-current="page" href="/scene-builder/">Video Studio</a>', res.text)
         cfg = self.client.get("/api/cloud-render/config")
         self.assertEqual(cfg.status_code,200)

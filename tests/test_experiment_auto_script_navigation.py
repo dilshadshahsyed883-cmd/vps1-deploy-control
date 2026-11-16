@@ -23,8 +23,8 @@ class AutoScriptTabTests(unittest.TestCase):
     def test_legacy_auto_script_hidden_from_experiment_subtab(self):
         base = (SCENE / "templates/base.html").read_text()
         rail = base.split('class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
-        self.assertEqual(rail.count("<a "), 4)
-        for label in ("Antidetect Browser", "Upload Studio", "Cloud Render", "HeyGen Studio"):
+        self.assertEqual(rail.count("<a "), 6)
+        for label in ("Antidetect Browser", "Upload Studio", "Concat", "HeyGen", "Voice Clone", "Imagen"):
             self.assertEqual(rail.count(">" + label + "</a>"), 1)
         for label in ("Auto Script", "Self Media Library", "Video Studio"):
             self.assertNotIn(">" + label + "</a>", rail)

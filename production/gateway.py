@@ -288,7 +288,7 @@ def verify_cloud_render_scene_only_https(revision):
         cookie = scene_cookie()
         status, content_type, html = routes.tls_get("/cloud-render/", cookie=cookie,
                                                     accept="text/html")
-        markers = (b"Cloud Render" in html,
+        markers = (b"Concat" in html or b"Cloud Render" in html,
                    b"GPU Config" in html,
                    b"Media" in html)
         if status != 200 or "html" not in content_type.lower() or not all(markers):
@@ -366,7 +366,7 @@ def verify_experiment_nav_no_gateway(revision):
         if shell.count(token) != 1:
             raise RuntimeError("Experiment navigation registry missing or duplicated")
         nav = shell.split(token, 1)[1].split("]);", 1)[0]
-        for label in ("Antidetect Browser", "Upload Studio", "Cloud Render"):
+        for label in ("Antidetect Browser", "Upload Studio", "Concat"):
             if '["' + label + '",' not in nav:
                 raise RuntimeError("Experiment navigation approved tab missing")
         for label in ("Auto Script", "Self Media Library", "Video Studio"):
