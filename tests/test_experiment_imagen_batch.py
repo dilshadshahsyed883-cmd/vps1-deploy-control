@@ -121,7 +121,7 @@ class ImagenBatchTests(unittest.TestCase):
         base = "/api/experiment-gpu/imagen"
         self.upstream_running = True
         response = self.client.post(base + "/batches", headers=self.csrf,
-            json={"prompts": "\\n".join(f"p{i}: landscape {i}" for i in range(20))})
+            json={"prompts": "\n".join(f"p{i}: landscape {i}" for i in range(20))})
         self.assertEqual(response.status_code, 202, response.text)
         batch_id = response.json()["batch_id"]
         queue = self.bridge.imagen_queue
@@ -153,7 +153,7 @@ class ImagenBatchTests(unittest.TestCase):
     def test_gpu_unavailable_stops_new_batch_submissions_temporarily(self):
         base = "/api/experiment-gpu/imagen"
         result = self.client.post(base + "/batches", headers=self.csrf,
-            json={"prompts": "\\n".join(f"p{i}: test {i}" for i in range(20))})
+            json={"prompts": "\n".join(f"p{i}: test {i}" for i in range(20))})
         batch_id = result.json()["batch_id"]
         original = self.bridge.transport
         self.bridge.transport = httpx.MockTransport(
@@ -175,7 +175,7 @@ class ImagenBatchTests(unittest.TestCase):
         self.assertEqual(created.status_code, 202)
         job_id = created.json()["id"]
         self.client.post(base + "/batches", headers=self.csrf,
-            json={"prompts": "\\n".join(f"p{i}: image {i}" for i in range(20))})
+            json={"prompts": "\n".join(f"p{i}: image {i}" for i in range(20))})
         self.bridge.imagen_queue.tick()
         path = self.bridge.imagen_queue.root / "single" / job_id / "scene_001.png"
         self.assertTrue(path.is_file(), "Existing single-image VPS transfer must not starve")
