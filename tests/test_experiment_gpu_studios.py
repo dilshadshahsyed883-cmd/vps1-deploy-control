@@ -192,6 +192,38 @@ class GpuStudioTests(unittest.TestCase):
         self.assertEqual(self.client.get("/imagen-studio/").status_code, 401)
         self.assertEqual(self.client.get(base + "/config").status_code, 401)
 
+    def test_candidate_imagen_voice_gpu_writes_are_exact_and_csrf_guarded(self):
+        from precutover_policy import mutation_allowed
+
+        for studio in ("imagen", "voice-clone"):
+            for action in ("config", "jobs"):
+                path = f"/api/experiment-gpu/{studio}/{action}"
+                self.assertTrue(mutation_allowed("POST", path, False), path)
+        self.assertTrue(mutation_allowed(
+            "POST", "/api/experiment-gpu/imagen/jobs/img_A-1/cancel", False
+        ))
+        for method, path in (
+            ("POST", "/api/experiment-gpu/imagen/admin"),
+            ("POST", "/api/experiment-gpu/imagen/config/rotate"),
+            ("POST", "/api/experiment-gpu/voice-clone/jobs/img_A-1/cancel"),
+            ("DELETE", "/api/experiment-gpu/imagen/config"),
+            ("POST", "/api/experiment-gpu/imagen/jobs/../../other/cancel"),
+            ("POST", "/api/experiment-gpu/imagen/jobs/" + "a" * 129 + "/cancel"),
+            ("POST", "/api/experiment-gpu/unknown/config"),
+        ):
+            self.assertFalse(mutation_allowed(method, path, False), (method, path))
+
+        # Allowlisting must not bypass CSRF or owner-scoped configuration.
+        self.login("alice")
+        csrf = self.token("imagen")
+        config_path = "/api/experiment-gpu/imagen/config"
+        self.assertEqual(self.client.post(config_path, json={
+            "endpoint": "https://worker.example"
+        }).status_code, 403)
+        self.assertEqual(self.configure("imagen", csrf).status_code, 200)
+        self.login("bob")
+        self.assertFalse(self.client.get(config_path).json()["configured"])
+
     def test_gpu_configuration_has_private_filesystem_permissions(self):
         import stat
         self.assertEqual(stat.S_IMODE(self.bridge.root.stat().st_mode), 0o700)

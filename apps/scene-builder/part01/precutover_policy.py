@@ -26,6 +26,20 @@ _ADMIN_USER_MANAGEMENT = ("POST", "/user-management")
 
 
 def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_enabled: bool = False) -> bool:
+    # Imagen and Voice Clone are owner-scoped studios. Their handlers independently
+    # require an active session and a session-bound CSRF token for every POST.
+    # The precutover gate must allow only these exact owner-approved actions.
+    if method == "POST" and path in {
+        "/api/experiment-gpu/imagen/config",
+        "/api/experiment-gpu/imagen/jobs",
+        "/api/experiment-gpu/voice-clone/config",
+        "/api/experiment-gpu/voice-clone/jobs",
+    }:
+        return True
+    if method == "POST" and re.fullmatch(
+        r"/api/experiment-gpu/imagen/jobs/[A-Za-z0-9_-]{1,128}/cancel", path
+    ):
+        return True
     # HeyGen Studio: allow only exact owner-authenticated and CSRF-protected
     # configuration, queue and job actions. No blanket candidate write access.
     if (method, path) in {
