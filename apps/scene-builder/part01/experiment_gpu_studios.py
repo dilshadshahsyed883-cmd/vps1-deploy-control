@@ -6,6 +6,7 @@ Salad, never through this API. CPU orchestration only; all inference is remote.
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import json
 import os
@@ -27,6 +28,8 @@ OUTPUT_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.(?:png|jpe?g|webp)$", re.I)
 MAX_VOICE_REFERENCE = 20 * 1024 * 1024
 MAX_IMAGE_REFERENCE = 12 * 1024 * 1024
 MAX_OUTPUT = 256 * 1024 * 1024
+MAX_SAVED_OBJECT = 64 * 1024 * 1024
+MAX_SAVED_PER_OWNER = 512 * 1024 * 1024
 
 
 def checked_endpoint(value: str) -> str:
@@ -87,6 +90,19 @@ class ExperimentGpuStudios:
                 PRIMARY KEY(studio, owner, id)
             );
             CREATE INDEX IF NOT EXISTS ix_gpu_jobs_owner ON gpu_jobs(studio,owner,created_at);
+            CREATE TABLE IF NOT EXISTS gpu_job_gateways (
+                studio TEXT NOT NULL, owner TEXT NOT NULL, id TEXT NOT NULL,
+                endpoint TEXT NOT NULL, PRIMARY KEY(studio, owner, id)
+            );
+            CREATE TABLE IF NOT EXISTS gpu_saved_media (
+                studio TEXT NOT NULL, owner TEXT NOT NULL, id TEXT NOT NULL,
+                media_index INTEGER NOT NULL, filename TEXT NOT NULL,
+                mimetype TEXT NOT NULL, byte_count INTEGER NOT NULL,
+                sha256 TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(studio, owner, id, media_index)
+            );
+            CREATE INDEX IF NOT EXISTS ix_gpu_saved_media_owner
+                ON gpu_saved_media(studio, owner);
             """)
         os.chmod(self.db, 0o600)  # Secrets are never group/world readable
 
@@ -183,8 +199,10 @@ class ExperimentGpuStudios:
         ready = False
         try:
             response = self.request(studio, owner, "GET", "/ready", timeout=10)
-            ready = response.status_code == 200
-        except HTTPException:
+            state = response.json()
+            # A 200 health response is not proof that weights are loaded.
+            ready = response.status_code == 200 and isinstance(state, dict) and state.get("ready") is True
+        except (HTTPException, ValueError):
             ready = False
         return {"alive": live.status_code == 200, "ready": ready,
                 "engine": str(details.get("engine", ""))[:128] if isinstance(details, dict) else ""}
@@ -214,9 +232,12 @@ class ExperimentGpuStudios:
             mode = str(payload.get("mode") or "generate")
             if mode not in ("generate", "edit"):
                 raise HTTPException(422, "Invalid generation mode")
-            width = int(payload.get("width") or 1024)
-            height = int(payload.get("height") or 576)
-            count = int(payload.get("count") or 1)
+            try:
+                width = int(payload.get("width") or 1024)
+                height = int(payload.get("height") or 576)
+                count = int(payload.get("count") or 1)
+            except (TypeError, ValueError, OverflowError):
+                raise HTTPException(422, "Resolution/count must be whole numbers") from None
             if (width < 256 or width > 2048 or height < 256 or height > 2048
                     or width % 8 or height % 8 or not 1 <= count <= 8):
                 raise HTTPException(422, "Resolution/count outside supported web limits")
@@ -266,11 +287,23 @@ class ExperimentGpuStudios:
             result = response.json()
         except ValueError:
             raise HTTPException(502, "GPU returned an invalid job response") from None
+        if not isinstance(result, dict):
+            raise HTTPException(502, "GPU returned an invalid job record")
         job_id = checked_id(str(result.get("id") or result.get("job_id") or ""))
+        gateway = self.config(studio, owner, reveal=True)["endpoint"]
         with self.connection() as conn:
+            # Do not silently reuse a prior owner's local ID after a model swap.
+            if conn.execute(
+                    "SELECT 1 FROM gpu_jobs WHERE studio=? AND owner=? AND id=?",
+                    (studio, owner, job_id)).fetchone():
+                raise HTTPException(409, "GPU reused a saved job ID; check worker configuration")
             conn.execute(
-                "INSERT OR IGNORE INTO gpu_jobs(studio,owner,id,status) VALUES(?,?,?,?)",
+                "INSERT INTO gpu_jobs(studio,owner,id,status) VALUES(?,?,?,?)",
                 (studio, owner, job_id, "queued")
+            )
+            conn.execute(
+                "INSERT INTO gpu_job_gateways(studio,owner,id,endpoint) VALUES(?,?,?,?)",
+                (studio, owner, job_id, gateway)
             )
         return {"id": job_id, "status": "queued"}
 
@@ -294,10 +327,115 @@ class ExperimentGpuStudios:
             raise HTTPException(404, "Job not found")
         return dict(row)
 
+    def assert_job_gateway(self, studio: str, owner: str, job_id: str):
+        # Legacy jobs have no binding: preserve their existing behavior.
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT endpoint FROM gpu_job_gateways WHERE studio=? AND owner=? AND id=?",
+                (studio, owner, job_id)
+            ).fetchone()
+        if row and row["endpoint"] != self.config(studio, owner, reveal=True)["endpoint"]:
+            raise HTTPException(409, "Job belongs to a previous GPU gateway; only saved VPS media is available")
+
+    def saved_count(self, studio: str, owner: str, job_id: str) -> int:
+        with self.connection() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM gpu_saved_media WHERE studio=? AND owner=? AND id=?",
+                (studio, owner, job_id)
+            ).fetchone()[0]
+
+    def saved_path(self, studio: str, owner: str, job_id: str, index: int) -> Path:
+        # No user-provided string is a path component, except a checked worker job ID.
+        return (self.root / "saved-media" / studio / hashlib.sha256(owner.encode("utf-8")).hexdigest()
+                / checked_id(job_id) / (str(index) + ".bin"))
+
+    @staticmethod
+    def media_response(data: bytes, mimetype: str, filename: str,
+                       studio: str, preview: bool, saved: bool) -> Response:
+        disposition = "inline" if studio == "imagen" and preview else "attachment"
+        return Response(content=data, media_type=mimetype,
+                        headers={"Cache-Control": "private, no-store",
+                                 "X-Content-Type-Options": "nosniff",
+                                 "X-VPS-Media-Saved": "true" if saved else "false",
+                                 "Content-Disposition": disposition + '; filename="' + filename + '"'})
+
+    def cached_media(self, studio: str, owner: str, job_id: str,
+                     index: int, preview: bool):
+        with self.connection() as conn:
+            row = conn.execute(
+                """SELECT filename,mimetype,byte_count,sha256 FROM gpu_saved_media
+                   WHERE studio=? AND owner=? AND id=? AND media_index=?""",
+                (studio, owner, job_id, index)
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            data = self.saved_path(studio, owner, job_id, index).read_bytes()
+        except OSError:
+            raise HTTPException(503, "Saved VPS media is temporarily unavailable") from None
+        if len(data) != row["byte_count"] or hashlib.sha256(data).hexdigest() != row["sha256"]:
+            raise HTTPException(502, "Saved VPS media integrity check failed")
+        return self.media_response(data, row["mimetype"], row["filename"],
+                                   studio, preview, True)
+
+    def save_media(self, studio: str, owner: str, job_id: str, index: int,
+                   filename: str, mimetype: str, data: bytes) -> bool:
+        # Bound automatic storage; oversized outputs still remain downloadable.
+        if len(data) > MAX_SAVED_OBJECT:
+            return False
+        path = self.saved_path(studio, owner, job_id, index)
+        temp = None
+        try:
+            with self.connection() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                existing = conn.execute(
+                    """SELECT 1 FROM gpu_saved_media
+                       WHERE studio=? AND owner=? AND id=? AND media_index=?""",
+                    (studio, owner, job_id, index)
+                ).fetchone()
+                if existing:
+                    return True
+                total = conn.execute(
+                    "SELECT COALESCE(SUM(byte_count),0) FROM gpu_saved_media WHERE studio=? AND owner=?",
+                    (studio, owner)
+                ).fetchone()[0]
+                if total + len(data) > MAX_SAVED_PER_OWNER:
+                    return False
+                path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+                # mkdir(parents=True) may create intermediate folders at 0755.
+                for directory in (path.parents[3], path.parents[2], path.parents[1], path.parent):
+                    os.chmod(directory, 0o700)
+                temp = path.with_name(path.name + "." + secrets.token_hex(8) + ".tmp")
+                with open(temp, "xb") as stream:
+                    os.chmod(temp, 0o600)
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temp, path)
+                conn.execute(
+                    """INSERT INTO gpu_saved_media
+                       (studio,owner,id,media_index,filename,mimetype,byte_count,sha256)
+                       VALUES(?,?,?,?,?,?,?,?)""",
+                    (studio, owner, job_id, index, filename, mimetype,
+                     len(data), hashlib.sha256(data).hexdigest())
+                )
+            return True
+        except OSError:
+            # Never convert an otherwise successful inference into data loss
+            # because local cache storage reached its quota or is unavailable.
+            return False
+        finally:
+            if temp is not None:
+                try:
+                    temp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
     def status(self, studio: str, owner: str, job_id: str):
         row = self.require_job(studio, owner, job_id)
         path = ("/jobs/" if studio == "imagen" else "/v1/jobs/") + job_id
         try:
+            self.assert_job_gateway(studio, owner, job_id)
             response = self.request(studio, owner, "GET", path)
             data = response.json()
             if not isinstance(data, dict):
@@ -311,20 +449,25 @@ class ExperimentGpuStudios:
                     (status, studio, owner, job_id)
                 )
             outputs = data.get("outputs", [])
+            cached = self.saved_count(studio, owner, job_id)
             return {"id": job_id, "status": status, "created_at": row["created_at"],
-                    "output_count": len(outputs) if isinstance(outputs, list) else 0,
+                    "output_count": max(cached, len(outputs) if isinstance(outputs, list) else 0),
+                    "saved_output_count": cached,
                     "error": str(data.get("error") or "")[:300],
                     "generation_seconds": data.get("generation_seconds"),
                     "audio_seconds": data.get("audio_duration_seconds"),
                     "speed_factor": data.get("speed_factor")}
         except (ValueError, HTTPException) as exc:
             # Local records remain visible if the worker is sleeping or changed.
-            return {**row, "worker_error": str(exc.detail if isinstance(exc, HTTPException) else exc)[:180]}
+            cached = self.saved_count(studio, owner, job_id)
+            return {**row, "output_count": cached, "saved_output_count": cached,
+                    "worker_error": str(exc.detail if isinstance(exc, HTTPException) else exc)[:180]}
 
     def cancel(self, studio: str, owner: str, job_id: str):
         self.require_job(studio, owner, job_id)
         if studio != "imagen":
             raise HTTPException(405, "This voice worker does not expose cancellation")
+        self.assert_job_gateway(studio, owner, job_id)
         result = self.request(studio, owner, "POST", "/jobs/" + job_id + "/cancel")
         with self.connection() as conn:
             conn.execute(
@@ -335,13 +478,17 @@ class ExperimentGpuStudios:
 
     def media(self, studio: str, owner: str, job_id: str, index: int = 0, preview: bool = False):
         self.require_job(studio, owner, job_id)
+        if index < 0 or index > (0 if studio == "voice-clone" else 7):
+            raise HTTPException(404, "Output index not found")
+        cached = self.cached_media(studio, owner, job_id, index, preview)
+        if cached is not None:
+            return cached
+        self.assert_job_gateway(studio, owner, job_id)
         if studio == "voice-clone":
             path = "/v1/jobs/" + job_id + "/audio"
             mimetype = "audio/wav"
             name = "voice-" + job_id + ".wav"
         else:
-            if index < 0 or index > 7:
-                raise HTTPException(404, "Image index not found")
             result = self.request(studio, owner, "GET", "/jobs/" + job_id)
             try:
                 outputs = result.json().get("outputs", [])
@@ -362,13 +509,21 @@ class ExperimentGpuStudios:
             mimetype = ("image/jpeg" if name.lower().endswith((".jpg", ".jpeg"))
                         else "image/webp" if name.lower().endswith(".webp") else "image/png")
         result = self.request(studio, owner, "GET", path, timeout=90)
-        if len(result.content) > MAX_OUTPUT:
+        data = result.content
+        if len(data) > MAX_OUTPUT:
             raise HTTPException(413, "GPU output exceeds download safety limit")
-        return Response(content=result.content, media_type=mimetype,
-                        headers={"Cache-Control": "private, no-store",
-                                 "Content-Disposition": (("inline" if studio == "imagen" and preview else "attachment")
-                                                         + '; filename="' + name + '"')})
-
+        if studio == "voice-clone":
+            if not data.startswith(b"RIFF") or data[8:12] != b"WAVE":
+                raise HTTPException(502, "GPU returned invalid WAV media")
+        else:
+            try:
+                actual_type = image_bytes(data)
+            except HTTPException:
+                raise HTTPException(502, "GPU returned invalid image media") from None
+            if actual_type != mimetype:
+                raise HTTPException(502, "GPU output media type mismatch")
+        saved = self.save_media(studio, owner, job_id, index, name, mimetype, data)
+        return self.media_response(data, mimetype, name, studio, preview, saved)
 
 def register_experiment_gpu_studios(app, templates, root, require_login, transport=None):
     bridge = ExperimentGpuStudios(Path(root), transport=transport)

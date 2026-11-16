@@ -156,6 +156,12 @@
         message.textContent = "Worker status unavailable: " + detail.worker_error;
         card.append(message);
       }
+      if (detail.saved_output_count > 0) {
+        const saved = document.createElement("p");
+        saved.className = "eg-muted";
+        saved.textContent = detail.saved_output_count + " output(s) saved privately on VPS — available if GPU goes offline.";
+        card.append(saved);
+      }
       if (detail.error) {
         const message = document.createElement("p");
         message.textContent = detail.error;
