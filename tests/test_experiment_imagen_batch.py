@@ -177,6 +177,93 @@ class ImagenBatchTests(unittest.TestCase):
         self.assertEqual(self.client.post(base + "/batches", headers=self.csrf,
                         json={"prompts": "p2: lake"}).status_code, 403)
 
+
+    def test_delete_individual_batch_png_and_entire_finished_batch(self):
+        base = "/api/experiment-gpu/imagen"
+        created = self.client.post(base + "/batches", headers=self.csrf,
+            json={"prompts": "p1: landscape\np2: city"}).json()
+        batch_id = created["batch_id"]
+        for _ in range(8):
+            self.bridge.imagen_queue.tick()
+        batch_dir = self.bridge.imagen_queue.root / "batches" / batch_id
+        self.assertTrue((batch_dir / "p1.png").exists())
+        detail = self.client.get(base + f"/batches/{batch_id}").json()
+        job_id = detail["items"][0]["remote_job_id"]
+        delete = self.client.delete(base + f"/jobs/{job_id}/outputs/0", headers=self.csrf)
+        self.assertEqual(delete.status_code, 200, delete.text)
+        self.assertFalse((batch_dir / "p1.png").exists())
+        self.assertEqual(self.client.get(base + f"/batches/{batch_id}/media/p1").status_code, 404)
+        self.assertEqual(self.client.get(base + f"/jobs/{job_id}/media").status_code, 404)
+        self.assertEqual(self.client.get(base + f"/jobs/{job_id}").json()["output_indices"], [])
+        self.assertEqual(self.client.get(base + f"/batches/{batch_id}").json()["items"][0]["state"],
+                         "deleted")
+        zipped = self.client.get(base + f"/batches/{batch_id}/download")
+        with zipfile.ZipFile(io.BytesIO(zipped.content)) as archive:
+            self.assertEqual(archive.namelist(), ["p2.png"])
+        done = self.client.delete(base + f"/batches/{batch_id}", headers=self.csrf)
+        self.assertEqual(done.status_code, 200, done.text)
+        self.assertFalse(batch_dir.exists())
+        self.assertEqual(self.client.get(base + f"/batches/{batch_id}").status_code, 404)
+        self.assertEqual(self.client.get(base + f"/jobs/{job_id}").status_code, 404)
+
+    def test_delete_single_output_survives_gpu_offline_and_delete_job(self):
+        base = "/api/experiment-gpu/imagen"
+        created = self.client.post(base + "/jobs", headers=self.csrf,
+            data={"prompt": "A landscape"}).json()
+        job_id = created["id"]
+        self.bridge.imagen_queue.tick()
+        stored = self.bridge.imagen_queue.root / "single" / job_id / "scene_001.png"
+        self.assertTrue(stored.is_file())
+        self.bridge.transport = httpx.MockTransport(lambda req: httpx.Response(503))
+        self.assertEqual(self.client.get(base + f"/jobs/{job_id}/media").status_code, 200)
+        self.assertEqual(self.client.delete(base + f"/jobs/{job_id}/outputs/0").status_code, 403)
+        removed = self.client.delete(base + f"/jobs/{job_id}/outputs/0", headers=self.csrf)
+        self.assertEqual(removed.status_code, 200, removed.text)
+        self.assertFalse(stored.exists())
+        self.assertEqual(self.client.get(base + f"/jobs/{job_id}/media").status_code, 404)
+        self.assertEqual(self.client.get(base + f"/jobs/{job_id}").json()["output_count"], 0)
+        self.assertEqual(self.client.delete(
+            base + f"/jobs/{job_id}/outputs/0", headers=self.csrf).status_code, 404)
+        deleted = self.client.delete(base + f"/jobs/{job_id}", headers=self.csrf)
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(self.client.get(base + f"/jobs/{job_id}").status_code, 404)
+        self.assertEqual(self.client.get(base + "/jobs").json()["items"], [])
+        self.assertFalse(stored.parent.exists())
+
+    def test_delete_queued_batch_and_reject_active_work_or_other_users(self):
+        base = "/api/experiment-gpu/imagen"
+        batch_id = self.client.post(base + "/batches", headers=self.csrf,
+            json={"prompts": "p1: one\np2: two"}).json()["batch_id"]
+        self.assertEqual(self.client.delete(base + f"/batches/{batch_id}").status_code, 403)
+        self.assertEqual(self.client.delete(base + f"/batches/{batch_id}", headers=self.csrf).status_code, 200)
+        self.assertEqual(len(self.submissions), 0, "Deleting pending batch must not start GPU work")
+        batch_id = self.client.post(base + "/batches", headers=self.csrf,
+            json={"prompts": "p3: three"}).json()["batch_id"]
+        self.bridge.imagen_queue.tick()  # submitted, but not saved
+        self.assertEqual(self.client.delete(base + f"/batches/{batch_id}",
+            headers=self.csrf).status_code, 409)
+        self.client.get("/_login/bob")
+        self.assertEqual(self.client.delete(base + f"/batches/{batch_id}",
+            headers=self.csrf).status_code, 403)
+        self.assertEqual(self.client.delete(base + "/jobs/gpu-1",
+            headers=self.csrf).status_code, 403)
+
+    def test_precutover_allows_only_exact_imagen_delete_routes(self):
+        from precutover_policy import mutation_allowed
+        for path in (
+            "/api/experiment-gpu/imagen/jobs/gpu-1",
+            "/api/experiment-gpu/imagen/jobs/gpu-1/outputs/0",
+            "/api/experiment-gpu/imagen/batches/" + "a" * 32,
+        ):
+            self.assertTrue(mutation_allowed("DELETE", path, False), path)
+        for path in (
+            "/api/experiment-gpu/voice-clone/jobs/gpu-1",
+            "/api/experiment-gpu/imagen/jobs/../../foo",
+            "/api/experiment-gpu/imagen/jobs/gpu-1/outputs/8",
+            "/api/experiment-gpu/imagen/batches/" + "z" * 32,
+        ):
+            self.assertFalse(mutation_allowed("DELETE", path, False), path)
+
     def test_queue_reattaches_after_new_process_object(self):
         base = "/api/experiment-gpu/imagen"
         batch = self.client.post(base + "/batches", headers=self.csrf,
