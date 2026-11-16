@@ -402,7 +402,9 @@ class ExperimentGpuStudios:
                 if total + len(data) > MAX_SAVED_PER_OWNER:
                     return False
                 path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-                os.chmod(path.parent, 0o700)
+                # mkdir(parents=True) may create intermediate folders at 0755.
+                for directory in (path.parents[3], path.parents[2], path.parents[1], path.parent):
+                    os.chmod(directory, 0o700)
                 temp = path.with_name(path.name + "." + secrets.token_hex(8) + ".tmp")
                 with open(temp, "xb") as stream:
                     os.chmod(temp, 0o600)
