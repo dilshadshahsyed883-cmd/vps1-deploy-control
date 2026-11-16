@@ -32,7 +32,7 @@
         <div><label for="eg-height">Height</label><select name="height" id="eg-height"><option value="576">576 (16:9)</option><option value="1024">1024</option><option value="768">768</option><option value="512">512</option></select></div>
       </div>
       <div id="eg-edit-wrap" hidden><label for="eg-reference">Reference JPG, PNG or WebP (up to 12 MB)</label><input id="eg-reference" type="file" name="reference" accept="image/png,image/jpeg,image/webp"></div>
-      <p class="eg-muted">Editing is available only when the currently deployed model supports assets and edit jobs. Unsupported engines will report an error instead of silently falling back.</p>
+      <p class="eg-muted">Editing requires a model that supports edit jobs. Qwen Image Edit uses the reference image dimensions; width and height apply to generation models.</p>
       <button class="eg-btn primary" type="submit" id="eg-submit">Generate Images</button>
     </form>
     {% else %}
@@ -96,7 +96,7 @@
       {% if studio == 'imagen' %}
       <label for="eg-auth-mode">Model worker authentication</label>
       <select id="eg-auth-mode" name="auth_mode">
-        <option value="x-api-key">X-API-Key (FLUX / SANA)</option>
+        <option value="x-api-key">X-API-Key (FLUX / SANA / Qwen)</option>
         <option value="x-renderer-token">X-Renderer-Token (Z-Image)</option>
       </select>
       {% else %}
