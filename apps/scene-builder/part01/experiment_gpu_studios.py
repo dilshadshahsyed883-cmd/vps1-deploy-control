@@ -63,6 +63,22 @@ def image_bytes(data: bytes) -> str:
     raise HTTPException(415, "Use a valid JPG, PNG or WebP reference image")
 
 
+def imagen_outputs(data: dict, job_id: str) -> list[dict]:
+    """Normalize engine manifests without exposing worker URLs to the Gallery."""
+    outputs = data.get("outputs")
+    if isinstance(outputs, list) and outputs:
+        return [item for item in outputs if isinstance(item, dict)][:8]
+    scenes = data.get("scenes")
+    if not isinstance(scenes, list):
+        return []
+    return [
+        {"url": f"/jobs/{job_id}/output/{index}", "filename": scene["output"]}
+        for index, scene in enumerate(scenes[:8])
+        if isinstance(scene, dict) and scene.get("status") == "completed"
+        and isinstance(scene.get("output"), str) and OUTPUT_NAME.fullmatch(scene["output"])
+    ]
+
+
 class ExperimentGpuStudios:
     def __init__(self, root: Path, transport=None):
         self.root = Path(root) / "experiment-gpu-studios"
@@ -214,9 +230,19 @@ class ExperimentGpuStudios:
             mode = str(payload.get("mode") or "generate")
             if mode not in ("generate", "edit"):
                 raise HTTPException(422, "Invalid generation mode")
-            width = int(payload.get("width") or 1024)
-            height = int(payload.get("height") or 576)
-            count = int(payload.get("count") or 1)
+            try:
+                width = int(payload.get("width") or 1024)
+                height = int(payload.get("height") or 576)
+                count = int(payload.get("count") or 1)
+            except (TypeError, ValueError):
+                raise HTTPException(422, "Invalid resolution/count") from None
+            capabilities = self.capabilities(studio, owner)
+            qwen_edit = capabilities.get("engine") == "qwen-image-edit-2511"
+            modes = capabilities.get("supported_modes", capabilities.get("modes"))
+            if isinstance(modes, list) and mode not in modes:
+                raise HTTPException(422, "Deployed Imagen model does not support this mode")
+            if qwen_edit and (mode != "edit" or len(prompt) > 2048):
+                raise HTTPException(422, "Qwen requires edit mode and a prompt up to 2048 characters")
             if (width < 256 or width > 2048 or height < 256 or height > 2048
                     or width % 8 or height % 8 or not 1 <= count <= 8):
                 raise HTTPException(422, "Resolution/count outside supported web limits")
@@ -225,20 +251,27 @@ class ExperimentGpuStudios:
                 if not reference or not reference.get("data"):
                     raise HTTPException(422, "Image editing needs a reference image")
                 raw = reference["data"]
+                if len(raw) > MAX_IMAGE_REFERENCE:
+                    raise HTTPException(413, "Reference image exceeds 12 MB")
                 content_type = image_bytes(raw)
-                uploaded = self.request(studio, owner, "POST", "/assets",
-                                        files={"file": ("reference.png", raw, content_type)}, timeout=60)
-                try:
-                    asset = str(uploaded.json().get("asset_id") or "")
-                except ValueError:
-                    asset = ""
-                if not IDS.fullmatch(asset):
-                    raise HTTPException(502, "GPU did not return a valid reference asset ID")
-                refs = [asset]
+                if qwen_edit:
+                    # Qwen's queue takes plain base64 references, not /assets IDs.
+                    refs = [base64.b64encode(raw).decode("ascii")]
+                else:
+                    uploaded = self.request(studio, owner, "POST", "/assets",
+                                            files={"file": ("reference.png", raw, content_type)}, timeout=60)
+                    try:
+                        asset = str(uploaded.json().get("asset_id") or "")
+                    except ValueError:
+                        asset = ""
+                    if not IDS.fullmatch(asset):
+                        raise HTTPException(502, "GPU did not return a valid reference asset ID")
+                    refs = [asset]
             scenes = []
             for _ in range(count):
-                scene = {"prompt": prompt, "width": width, "height": height,
-                         "seed": secrets.randbelow(2147483647)}
+                scene = {"prompt": prompt, "seed": secrets.randbelow(2147483647)}
+                if not qwen_edit:
+                    scene.update(width=width, height=height)
                 if refs:
                     scene["references"] = refs
                 scenes.append(scene)
@@ -310,7 +343,7 @@ class ExperimentGpuStudios:
                     "UPDATE gpu_jobs SET status=? WHERE studio=? AND owner=? AND id=?",
                     (status, studio, owner, job_id)
                 )
-            outputs = data.get("outputs", [])
+            outputs = imagen_outputs(data, job_id) if studio == "imagen" else data.get("outputs", [])
             return {"id": job_id, "status": status, "created_at": row["created_at"],
                     "output_count": len(outputs) if isinstance(outputs, list) else 0,
                     "error": str(data.get("error") or "")[:300],
@@ -344,20 +377,34 @@ class ExperimentGpuStudios:
                 raise HTTPException(404, "Image index not found")
             result = self.request(studio, owner, "GET", "/jobs/" + job_id)
             try:
-                outputs = result.json().get("outputs", [])
+                outputs = imagen_outputs(result.json(), job_id)
                 item = outputs[index]
                 url = str(item.get("url") or item.get("path") or "")
             except (IndexError, KeyError, AttributeError, ValueError, TypeError):
                 raise HTTPException(404, "Image output not available") from None
-            candidate = urlsplit(url)
+            try:
+                candidate = urlsplit(url)
+                output_port = candidate.port
+            except ValueError:
+                raise HTTPException(502, "Invalid GPU output URL") from None
             configured_host = urlsplit(self.config(studio, owner, reveal=True)["endpoint"]).hostname
             if candidate.scheme or candidate.netloc:
-                if candidate.scheme != "https" or candidate.hostname != configured_host:
+                if (candidate.scheme != "https" or candidate.hostname != configured_host
+                        or candidate.username or candidate.password or output_port not in (None, 443)):
                     raise HTTPException(502, "GPU output host mismatch")
             path = candidate.path
-            prefix = "/outputs/" + job_id + "/"
-            name = path.removeprefix(prefix)
-            if not path.startswith(prefix) or not OUTPUT_NAME.fullmatch(name):
+            if candidate.query or candidate.fragment:
+                raise HTTPException(502, "GPU output path not permitted")
+            prefixes = (f"/outputs/{job_id}/", f"/jobs/{job_id}/outputs/")
+            name = ""
+            for prefix in prefixes:
+                if path.startswith(prefix):
+                    name = path[len(prefix):]
+                    break
+            # Qwen uses a numeric scene route; the normalized filename is display-only.
+            if re.fullmatch(re.escape(f"/jobs/{job_id}/output/") + r"[0-7]", path):
+                name = str(item.get("filename") or "")
+            if not OUTPUT_NAME.fullmatch(name) or ".." in name:
                 raise HTTPException(502, "GPU output path not permitted")
             mimetype = ("image/jpeg" if name.lower().endswith((".jpg", ".jpeg"))
                         else "image/webp" if name.lower().endswith(".webp") else "image/png")

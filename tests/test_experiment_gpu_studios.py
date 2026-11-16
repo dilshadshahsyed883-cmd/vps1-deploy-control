@@ -148,6 +148,129 @@ class GpuStudioTests(unittest.TestCase):
         self.assertEqual(self.client.get(base + "/jobs/img-001/media").status_code, 404)
         self.assertFalse(self.client.get(base + "/config").json()["configured"])
 
+    def test_qwen_edit_base64_request_and_scene_gallery_downloads(self):
+        import base64
+        import json
+        self.login()
+        headers = self.token("imagen")
+        self.configure("imagen", headers)
+        base = "/api/experiment-gpu/imagen"
+        reference = b"\x89PNG\r\n\x1a\nreference"
+        seen = []
+
+        def worker(req):
+            seen.append(req.url.path)
+            if req.url.path == "/capabilities":
+                return httpx.Response(200, json={
+                    "engine": "qwen-image-edit-2511", "supported_modes": ["edit"]})
+            if req.url.path == "/jobs" and req.method == "POST":
+                body = json.loads(req.content)
+                self.assertEqual(body["mode"], "edit")
+                self.assertEqual(len(body["scenes"]), 2)
+                for scene in body["scenes"]:
+                    self.assertEqual(base64.b64decode(scene["references"][0]), reference)
+                    self.assertNotIn("width", scene)
+                    self.assertNotIn("height", scene)
+                return httpx.Response(202, json={"id": "qwen-001"})
+            if req.url.path == "/jobs/qwen-001":
+                return httpx.Response(200, json={"status": "completed", "scenes": [
+                    {"status": "failed", "output": None},
+                    {"status": "completed", "output": "scene-1.png"}]})
+            if req.url.path == "/jobs/qwen-001/output/1":
+                self.assertEqual(req.headers["x-api-key"], "private-worker-secret")
+                return httpx.Response(200, content=reference)
+            self.fail("Unexpected Qwen request: " + req.url.path)
+
+        self.bridge.transport = httpx.MockTransport(worker)
+        self.assertEqual(self.client.post(base + "/jobs", headers=headers, data={
+            "prompt": "Edit scene", "mode": "generate"}).status_code, 422)
+        for data, files in (({"prompt": "Edit", "mode": "edit"}, {}),
+                            ({"prompt": "x" * 2049, "mode": "edit"}, {})):
+            self.assertEqual(self.client.post(base + "/jobs", headers=headers,
+                data=data, files=files).status_code, 422)
+        job = self.client.post(base + "/jobs", headers=headers, data={
+            "prompt": "Edit scene", "mode": "edit", "count": 2},
+            files={"reference": ("reference.png", reference, "image/png")})
+        self.assertEqual(job.status_code, 202, job.text)
+        self.assertNotIn("/assets", seen)
+        detail = self.client.get(base + "/jobs/qwen-001").json()
+        self.assertEqual(detail["output_count"], 1)
+        for suffix, disposition in (("", "attachment"), ("?preview=1", "inline")):
+            media = self.client.get(base + "/jobs/qwen-001/media" + suffix)
+            self.assertEqual(media.status_code, 200, media.text)
+            self.assertEqual(media.content, reference)
+            self.assertIn(disposition, media.headers["content-disposition"])
+        self.assertEqual(self.client.get(base + "/jobs/qwen-001/media?index=1").status_code, 404)
+
+    def test_sana_generation_and_flux_asset_edit_remain_compatible(self):
+        import json
+        self.login()
+        headers = self.token("imagen")
+        self.configure("imagen", headers)
+        base = "/api/experiment-gpu/imagen"
+        for engine, mode in (("sana-sprint-06b", "generate"), ("flux2-klein-4b", "edit")):
+            with self.subTest(engine=engine):
+                calls = []
+                def worker(req):
+                    calls.append(req.url.path)
+                    if req.url.path == "/capabilities":
+                        return httpx.Response(200, json={"engine": engine, "modes":
+                            ["generate"] if engine.startswith("sana") else ["generate", "edit"]})
+                    if req.url.path == "/assets":
+                        self.assertIn(b"reference", req.content)
+                        return httpx.Response(200, json={"asset_id": "ref-001"})
+                    if req.url.path == "/jobs":
+                        body = json.loads(req.content)
+                        self.assertEqual(body["mode"], mode)
+                        self.assertEqual(body["scenes"][0]["width"], 1024)
+                        self.assertEqual(body["scenes"][0]["height"], 576)
+                        if mode == "edit":
+                            self.assertEqual(body["scenes"][0]["references"], ["ref-001"])
+                        return httpx.Response(202, json={"id": engine})
+                    self.fail("Unexpected path: " + req.url.path)
+                self.bridge.transport = httpx.MockTransport(worker)
+                result = self.client.post(base + "/jobs", headers=headers,
+                    data={"prompt": "Scene", "mode": mode}, files={"reference": (
+                        "reference.png", b"\x89PNG\r\n\x1a\nreference", "image/png")})
+                self.assertEqual(result.status_code, 202, result.text)
+                self.assertEqual("/assets" in calls, mode == "edit")
+                if engine.startswith("sana"):
+                    self.assertEqual(self.client.post(base + "/jobs", headers=headers,
+                        data={"prompt": "Edit", "mode": "edit"}).status_code, 422)
+
+    def test_imagen_download_contracts_reject_untrusted_paths(self):
+        self.login()
+        headers = self.token("imagen")
+        self.configure("imagen", headers)
+        self.client.post("/api/experiment-gpu/imagen/jobs", headers=headers,
+                         data={"prompt": "Photorealistic scene"})
+        for path, expected in (
+            ("/outputs/img-001/scene-000.png", 200),  # FLUX / Z-Image
+            ("/jobs/img-001/outputs/scene-001.png", 200),  # Sana Sprint
+            ("https://worker.example/jobs/img-001/outputs/scene-001.png", 200),
+            ("/jobs/other/outputs/scene-001.png", 502),
+            ("/jobs/img-001/outputs/../secret.png", 502),
+            ("/jobs/img-001/outputs/%2e%2e%2fsecret.png", 502),
+            ("/jobs/img-001/outputs/scene.png?token=secret", 502),
+            ("https://evil.example/outputs/img-001/scene.png", 502),
+            ("https://worker.example:8443/outputs/img-001/scene.png", 502),
+            ("https://worker.example:bad/outputs/img-001/scene.png", 502),
+            ("/jobs/img-001/output/0", 502),  # No fabricated Qwen filename
+        ):
+            with self.subTest(path=path):
+                requests = []
+                def worker(req):
+                    requests.append(req.url.path)
+                    if req.url.path == "/jobs/img-001":
+                        return httpx.Response(200, json={"status": "completed",
+                            "outputs": [{"url": path}]})
+                    return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nphoto")
+                self.bridge.transport = httpx.MockTransport(worker)
+                result = self.client.get("/api/experiment-gpu/imagen/jobs/img-001/media")
+                self.assertEqual(result.status_code, expected, result.text)
+                if expected != 200:
+                    self.assertEqual(requests, ["/jobs/img-001"])
+
     def test_voice_clone_qwen_adapter_and_download(self):
         self.login("bob")
         headers = self.token("voice-clone")
