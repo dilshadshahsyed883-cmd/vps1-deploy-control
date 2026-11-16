@@ -26,6 +26,26 @@
     }
     return result;
   }
+  async function removeRecord(path, description) {
+    if (!window.confirm("Permanently delete " + description + "? Saved VPS images cannot be recovered.")) return;
+    try {
+      await api(path, {method:"DELETE"});
+      say(description + " deleted.");
+      if (activeTab === "gallery") {
+        await Promise.all([refreshGallery(), refreshBatchGallery()]);
+      } else {
+        await Promise.all([refreshJobs(), refreshBatches()]);
+      }
+    } catch (error) { say(error.message, true); }
+  }
+  function dangerButton(label, handler) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "eg-btn danger";
+    button.textContent = label;
+    button.addEventListener("click", handler);
+    return button;
+  }
   function tab(name) {
     activeTab = name;
     for (const button of root.querySelectorAll("[data-eg-tab]")) {
@@ -186,8 +206,14 @@
           actions.append(link("Download WAV", apiRoot + media));
         } else {
           const count = Math.min(8, detail.output_count || 0);
-          for (let i = 0; i < count; i++)
+          const indices = Array.isArray(detail.output_indices) ? detail.output_indices :
+            Array.from({length:count}, (_, i) => i);
+          for (const i of indices) {
             actions.append(link("Image " + (i+1), apiRoot + media + "?index=" + i));
+            actions.append(dangerButton("Delete Image " + (i+1), () =>
+              removeRecord("/jobs/" + encodeURIComponent(job.id) + "/outputs/" + i,
+                "image " + (i+1) + " from job " + job.id)));
+          }
         }
       }
       if (studio === "imagen" && ["queued", "running", "processing"].includes(detail.status)) {
@@ -209,6 +235,10 @@
       problem.className = "eg-muted";
       problem.textContent = "Status check: " + error.message;
       card.append(problem);
+    }
+    if (studio === "imagen") {
+      actions.append(dangerButton("Delete Job", () =>
+        removeRecord("/jobs/" + encodeURIComponent(job.id), "job " + job.id)));
     }
     card.append(actions);
   }
@@ -242,14 +272,19 @@
       let count = 0;
       for (const job of details) {
         if (!job || !["completed", "succeeded", "done"].includes(job.status)) continue;
-        for (let i = 0; i < Math.min(8, job.output_count || 0); i++) {
+        const indices = Array.isArray(job.output_indices) ? job.output_indices :
+          Array.from({length:Math.min(8, job.output_count || 0)}, (_, i) => i);
+        for (const i of indices) {
           const media = apiRoot + "/jobs/" + encodeURIComponent(job.id) + "/media?index=" + i;
           const tile = document.createElement("figure");
           const photo = document.createElement("img");
           photo.src = media + "&preview=1"; photo.loading = "lazy"; photo.alt = "Generated image " + (i + 1);
           const caption = document.createElement("figcaption");
           caption.textContent = "Job " + job.id.slice(0, 12) + " / Image " + (i+1);
-          tile.append(photo, caption, link("Download", media));
+          tile.append(photo, caption, link("Download", media),
+            dangerButton("Delete Image", () =>
+              removeRecord("/jobs/" + encodeURIComponent(job.id) + "/outputs/" + i,
+                "image " + (i+1) + " from job " + job.id)));
           list.append(tile); count++;
         }
       }
@@ -320,9 +355,13 @@
         title.textContent = item.filename + " — " + item.state;
         title.title = item.prompt;
         row.append(check, title);
-        if (item.state === "saved")
+        if (item.state === "saved") {
           row.append(link("PNG", batchUrl(batchId) + "/media/" +
             encodeURIComponent(item.prompt_id)));
+          if (item.remote_job_id) row.append(dangerButton("Delete PNG", () =>
+            removeRecord("/jobs/" + encodeURIComponent(item.remote_job_id) + "/outputs/0",
+              item.filename + " from batch " + batchId.slice(0, 12))));
+        }
         if (item.state === "failed") failed.push(item.prompt_id);
         if (item.error) {
           const problem = document.createElement("small");
@@ -396,6 +435,9 @@
           if (!pane.hidden) openBatchDetails(item.id, pane);
         });
         buttons.append(inspect);
+        buttons.append(dangerButton("Delete Batch", () =>
+          removeRecord("/batches/" + encodeURIComponent(item.id),
+            "batch " + item.id.slice(0, 12) + " and all saved PNGs")));
         if (item.saved > 0) buttons.append(
           link("Download All Saved ZIP", batchUrl(item.id) + "/download"));
         const details = document.createElement("div");
@@ -429,6 +471,9 @@
           const caption = document.createElement("figcaption");
           caption.textContent = item.filename;
           tile.append(photo, caption, link("Download", media));
+          if (item.remote_job_id) tile.append(dangerButton("Delete Image", () =>
+            removeRecord("/jobs/" + encodeURIComponent(item.remote_job_id) + "/outputs/0",
+              item.filename + " from batch " + batch.id.slice(0, 12))));
           gallery.append(tile);
           count++;
         }
