@@ -476,11 +476,28 @@ class ImagenBatchQueue:
         except (OSError, ValueError, TypeError) as exc:
             self._single_update(row, token, "failed", error=type(exc).__name__)
 
+    def _submit_available(self, limit=MAX_BATCH_SUBMIT_PER_TICK):
+        """Fill free GPU queue slots without exceeding the SQLite-enforced cap.
+
+        Never submit after observing a transient GPU outage in this cycle.
+        """
+        submitted = 0
+        for _ in range(limit):
+            if time.monotonic() < self.gpu_retry_after:
+                break
+            row, token = self._claim("batch", phase="submit")
+            if not row:
+                break
+            self._run_batch(row, token)
+            submitted += 1
+        return submitted
+
     def tick(self):
-        # Reconcile completed/in-flight GPU jobs first, then keep up to eight
-        # additional jobs ahead of the serial Sana worker. Separate phases avoid
-        # immediately re-polling a job submitted in this same cycle.
-        # Each claim still uses a durable SQLite lease across web processes.
+        # Refill immediately after *each* terminal job/download. Previously all
+        # eight outputs were downloaded sequentially before any replacement
+        # submission, causing a 6-10s GPU starvation gap every eight images.
+        # Do not poll fresh submissions in this same cycle: preserve lease and
+        # existing test/retention semantics.
         processed = False
         for _ in range(MAX_BATCH_POLL_PER_TICK):
             row, token = self._claim("batch", phase="poll")
@@ -488,16 +505,11 @@ class ImagenBatchQueue:
                 break
             processed = True
             self._run_batch(row, token)
-        if time.monotonic() >= self.gpu_retry_after:
-            for _ in range(MAX_BATCH_SUBMIT_PER_TICK):
-                if time.monotonic() < self.gpu_retry_after:
-                    break
-                row, token = self._claim("batch", phase="submit")
-                if not row:
-                    break
+            if self._submit_available(limit=1):
                 processed = True
-                self._run_batch(row, token)
-        # Manual single-image output transfers continue independently.
+        if self._submit_available():
+            processed = True
+        # Single-image transfers still get a turn every cycle.
         row, token = self._claim("single")
         if row:
             processed = True
