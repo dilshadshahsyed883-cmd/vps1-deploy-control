@@ -543,7 +543,22 @@ def register_experiment_gpu_studios(app, templates, root, require_login, transpo
                 result["output_count"] = max(saved, result.get("output_count") or 0)
                 if result.get("worker_error") and result.get("status") in ("completed", "queued"):
                     result["status"] = "completed"
+            indices = imagen_queue.visible_indices(job_id, result.get("output_count") or 0)
+            result["output_indices"] = indices
+            result["output_count"] = len(indices)
         return result
+
+    @app.delete("/api/experiment-gpu/imagen/jobs/{job_id}")
+    def delete_imagen_job(request: Request, job_id: str):
+        user = admin(request)
+        verify_csrf(request, "imagen")
+        return imagen_queue.delete_job(user, job_id)
+
+    @app.delete("/api/experiment-gpu/imagen/jobs/{job_id}/outputs/{index}")
+    def delete_imagen_output(request: Request, job_id: str, index: int):
+        user = admin(request)
+        verify_csrf(request, "imagen")
+        return imagen_queue.delete_output(user, job_id, index)
 
     @app.post("/api/experiment-gpu/{studio}/jobs/{job_id}/cancel")
     def cancel(request: Request, studio: str, job_id: str):
@@ -588,6 +603,12 @@ def register_experiment_gpu_studios(app, templates, root, require_login, transpo
     def list_imagen_batches(request: Request):
         admin(request)
         return imagen_queue.list_batches()
+
+    @app.delete("/api/experiment-gpu/imagen/batches/{batch_id}")
+    def delete_imagen_batch(request: Request, batch_id: str):
+        user = admin(request)
+        verify_csrf(request, "imagen")
+        return imagen_queue.delete_batch(user, batch_id)
 
     @app.get("/api/experiment-gpu/imagen/batches/{batch_id}")
     def imagen_batch_details(request: Request, batch_id: str):
