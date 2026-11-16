@@ -1,0 +1,114 @@
+name: VPS1 prune merged legacy fix branches (one-time)
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/vps1-prune-merged-fixes-once.yml
+
+permissions: {}
+concurrency:
+  group: vps1-legacy-fix-branch-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Delete only proven-merged old fix/* branch refs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Verify every candidate against the final merged PR SHA
+        id: cleanup
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const cutoff = Date.parse('2026-11-09T00:00:00Z');
+            // This workflow deliberately touches ONLY the fix/ prefix.
+            // All app feature branches, release/deploy branches and main are out of scope.
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: 'all', per_page: 100
+            });
+            const fixRefs = (await github.rest.git.listMatchingRefs({
+              owner, repo, ref: 'heads/fix/'
+            })).data;
+            if (!Array.isArray(fixRefs) || prs.length < 100) {
+              throw new Error('Incomplete GitHub inventory; refusing deletion');
+            }
+            const openHeads = new Set(
+              prs.filter(p => p.state === 'open' && p.head?.repo?.full_name === context.repo.owner + '/' + context.repo.repo)
+                 .map(p => p.head.ref)
+            );
+            const mergedHeads = new Map();
+            for (const pr of prs) {
+              if (!pr.merged_at || pr.base?.ref !== 'main' ||
+                  pr.head?.repo?.full_name !== owner + '/' + repo) continue;
+              const group = mergedHeads.get(pr.head.ref) || [];
+              group.push(pr);
+              mergedHeads.set(pr.head.ref, group);
+            }
+            const manifest = { inventory: { prs: prs.length, fixes: fixRefs.length },
+              cutoff: new Date(cutoff).toISOString(), deleted: [], preserved: [], errors: [] };
+            for (const entry of fixRefs) {
+              const full = entry.ref;
+              if (!/^refs\/heads\/fix\/[A-Za-z0-9._\/-]+$/.test(full)) {
+                manifest.preserved.push({ ref: full, why: 'invalid_or_out_of_scope' });
+                continue;
+              }
+              const name = full.slice('refs/heads/'.length);
+              const sha = entry.object?.sha;
+              if (!/^[a-f0-9]{40}$/.test(sha || '')) {
+                manifest.preserved.push({ ref: full, why: 'missing_sha' });
+                continue;
+              }
+              if (openHeads.has(name)) {
+                manifest.preserved.push({ ref: full, why: 'open_pr' });
+                continue;
+              }
+              const matching = (mergedHeads.get(name) || []).filter(
+                p => p.head.sha === sha && Date.parse(p.merged_at) < cutoff
+              );
+              if (!matching.length) {
+                manifest.preserved.push({ ref: full, why: 'no_old_exact_merged_pr' });
+                continue;
+              }
+              try {
+                const latest = (await github.rest.git.getRef({ owner, repo, ref: 'heads/' + name })).data;
+                if (latest.object?.sha !== sha) {
+                  manifest.preserved.push({ ref: full, why: 'head_changed' });
+                  continue;
+                }
+                await github.rest.git.deleteRef({ owner, repo, ref: 'heads/' + name });
+                manifest.deleted.push({ ref: full, sha, merged_pr: matching[0].number });
+                await new Promise(resolve => setTimeout(resolve, 350));
+              } catch (error) {
+                manifest.errors.push({ ref: full, error: String(error.message || error).slice(0, 200) });
+                if ([401, 403, 429].includes(error.status) || manifest.errors.length >= 10) break;
+              }
+            }
+            const fs = require('fs');
+            fs.writeFileSync('vps1-fix-branch-cleanup-manifest.json', JSON.stringify(manifest, null, 2));
+            core.summary.addHeading('VPS1 one-time fix/* branch cleanup')
+              .addTable([
+                [{data:'Measure',header:true},{data:'Count',header:true}],
+                ['PRs scanned', String(prs.length)],
+                ['fix/* refs scanned', String(fixRefs.length)],
+                ['deleted (merged + old + unchanged)', String(manifest.deleted.length)],
+                ['preserved', String(manifest.preserved.length)],
+                ['failed', String(manifest.errors.length)]
+              ]);
+            await core.summary.write();
+            core.info('Deleted ' + manifest.deleted.length + ' old merged fix branches; preserved ' +
+              manifest.preserved.length + '; failures ' + manifest.errors.length);
+            if (manifest.errors.length) core.setFailed('Some refs could not be deleted; see manifest');
+      - name: Preserve exact deleted branch names and SHA recovery references
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vps1-fix-branch-prune-manifest
+          path: vps1-fix-branch-cleanup-manifest.json
+          if-no-files-found: warn
+          retention-days: 90
