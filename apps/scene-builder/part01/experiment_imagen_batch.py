@@ -205,6 +205,10 @@ class ImagenBatchQueue:
                 "INSERT INTO imagen_batch_items(batch_id,prompt_id,ordinal,prompt) VALUES(?,?,?,?)",
                 [(batch_id, pid, i, prompt) for i, (pid, prompt) in enumerate(items)]
             )
+        # A new, explicitly submitted batch can probe a gateway that has
+        # recovered since a previous transient failure. Failed items keep
+        # their durable per-item retry_at backoff.
+        self.gpu_retry_after = 0.0
         self.wakeup.set()
         return {"batch_id": batch_id, "count": len(items), "status": "queued"}
 
