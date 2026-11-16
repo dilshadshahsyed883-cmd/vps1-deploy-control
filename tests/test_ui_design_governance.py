@@ -12,6 +12,14 @@ class UnifiedUiGovernanceTests(unittest.TestCase):
     def test_current_shared_shell_and_apps_match_approved_source_contract(self):
         self.assertEqual([], violations(self.sources))
 
+    def test_all_four_model_studios_are_required_with_stable_routes(self):
+        for label in ("Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
+            modified = dict(self.sources)
+            modified["shell_js"] = modified["shell_js"].replace(
+                f'["{label}",', f'["disabled-{label}",', 1)
+            issues = violations(modified)
+            self.assertTrue(any(label in issue for issue in issues), (label, issues))
+
     def test_hidden_experiment_navigation_regression_is_blocked(self):
         modified = dict(self.sources)
         marker = 'const EXPERIMENT_NAV = Object.freeze(['

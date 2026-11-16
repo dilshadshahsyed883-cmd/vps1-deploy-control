@@ -78,8 +78,14 @@ def violations(source: dict[str, str]) -> list[str]:
             "Auto Uploader primary tab missing")
     require("shell_js", 'addLink(tabs, "Auto Stream"',
             "Auto Stream independent primary tab missing")
-    require("shell_js", '["Cloud Render", "/cloud-render/", "cloud-render"]',
-            "Cloud Render Experiment Studio navigation missing")
+    for label, url, key in (
+        ("Concat", "/cloud-render/", "cloud-render"),
+        ("HeyGen Studio", "/heygen-studio/", "heygen"),
+        ("Voice Clone", "/voice-clone-studio/", "voice-clone"),
+        ("Imagen", "/imagen-studio/", "imagen"),
+    ):
+        require("shell_js", f'["{label}", "{url}", "{key}"]',
+                f"{label} canonical Experiment Studio navigation missing")
     parts = source["shell_js"].split("const EXPERIMENT_NAV = Object.freeze([", 1)
     if len(parts) != 2 or "]);" not in parts[1]:
         issues.append("shell_js: Experiment Studio navigation registry missing")
@@ -88,7 +94,7 @@ def violations(source: dict[str, str]) -> list[str]:
         for label in ("Auto Script", "Self Media Library", "Video Studio"):
             if f'["{label}",' in experiment_nav:
                 issues.append(f"shell_js: hidden Experiment Studio app still visible: {label}")
-        for label in ("Antidetect Browser", "Upload Studio", "Cloud Render"):
+        for label in ("Antidetect Browser", "Upload Studio", "Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
             if f'["{label}",' not in experiment_nav:
                 issues.append(f"shell_js: approved Experiment Studio app missing: {label}")
     require("shell_js", 'refreshIdentity()',
