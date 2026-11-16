@@ -252,6 +252,8 @@ class GpuStudioTests(unittest.TestCase):
         media = self.bridge.saved_path("imagen", "alice", "img-001", 0)
         self.assertTrue(media.is_file())
         self.assertEqual(S_IMODE(media.stat().st_mode), 0o600)
+        for directory in (media.parent, *list(media.parents)[1:4]):
+            self.assertEqual(S_IMODE(directory.stat().st_mode), 0o700)
         self.login("bob")
         self.assertEqual(self.client.get(base + "/jobs/img-001/media").status_code, 404)
         self.login("alice")
@@ -274,6 +276,19 @@ class GpuStudioTests(unittest.TestCase):
         self.assertEqual(saved.headers["x-vps-media-saved"], "true")
         self.assertIn("attachment", saved.headers["content-disposition"])
         self.assertEqual(self.client.get(base + "/jobs").json()["items"][0]["id"], "img-001")
+
+    def test_corrupted_saved_media_fails_integrity_check(self):
+        self.login()
+        headers = self.token("imagen")
+        self.configure("imagen", headers)
+        base = "/api/experiment-gpu/imagen"
+        self.assertEqual(self.client.post(base + "/jobs", headers=headers,
+                                          data={"prompt": "Photorealistic scene"}).status_code, 202)
+        self.assertEqual(self.client.get(base + "/jobs/img-001/media").status_code, 200)
+        self.bridge.saved_path("imagen", "alice", "img-001", 0).write_bytes(b"tampered")
+        tampered = self.client.get(base + "/jobs/img-001/media?preview=1")
+        self.assertEqual(tampered.status_code, 502)
+        self.assertIn("integrity", tampered.json()["detail"].lower())
 
     def test_job_not_cached_is_not_misrouted_after_gateway_swap(self):
         self.login()
