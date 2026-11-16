@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'apps/scene-builder/part01/experiment_gpu_studios.py'
+      - 'apps/scene-builder/part01/precutover_policy.py'
       - 'apps/scene-builder/part01/templates/experiment_gpu_studio.html'
       - 'apps/scene-builder/part01/static/experiment_gpu_studio.*'
       - 'apps/scene-builder/part01/templates/base.html'
@@ -28,5 +29,6 @@ jobs:
       - name: Compile backend and run isolated owner/auth/worker tests
         run: |
           python -m py_compile apps/scene-builder/part01/experiment_gpu_studios.py
+          python -m py_compile apps/scene-builder/part01/precutover_policy.py
           python -m unittest discover -s tests -p 'test_experiment_gpu_studios.py' -v
           python -m unittest discover -s tests -p 'test_experiment_four_studio_layout.py' -v
