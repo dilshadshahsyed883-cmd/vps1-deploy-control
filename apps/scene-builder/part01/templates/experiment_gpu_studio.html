@@ -2,7 +2,7 @@
 {% block title %}{{ studio_title }}{% endblock %}
 {% block subtitle %}Independent Salad GPU production{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="/static/experiment_gpu_studio.css?v=20261116-1">
+<link rel="stylesheet" href="/static/experiment_gpu_studio.css?v=20261116-delete-1">
 <section id="eg-root" class="eg" data-studio="{{ studio }}" data-csrf="{{ csrf_token }}">
   <header class="eg-heading">
     <div><div class="eg-eyebrow">EXPERIMENT STUDIO / {% if studio == 'imagen' %}ADMIN ONLY{% else %}OWNER-SCOPED{% endif %}</div>
@@ -136,5 +136,5 @@
     </form>
   </section>
 </section>
-<script defer src="/static/experiment_gpu_studio.js?v=20261116-batch-1"></script>
+<script defer src="/static/experiment_gpu_studio.js?v=20261116-delete-1"></script>
 {% endblock %}
