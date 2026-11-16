@@ -29,14 +29,19 @@ class GpuStudioTests(unittest.TestCase):
             os.environ.pop("EXPERIMENT_GPU_ALLOWED_HOSTS", None)
             if prior is None else os.environ.__setitem__("EXPERIMENT_GPU_ALLOWED_HOSTS", prior)))
         self.seen = []
+        self.ready = True
+        self.corrupt_image = False
+        self.upstream_offline = False
 
         def upstream(req: httpx.Request):
             self.seen.append((req.method, req.url.path, dict(req.headers)))
+            if self.upstream_offline:
+                raise httpx.ConnectError("mock GPU worker offline")
             path = req.url.path
             if path == "/health":
                 return httpx.Response(200, json={"ok": True, "engine": "configured"})
             if path == "/ready":
-                return httpx.Response(200, json={"ready": True})
+                return httpx.Response(200, json={"ready": self.ready})
             if path == "/capabilities":
                 return httpx.Response(200, json={"engine": "flux2-klein-4b", "modes": ["generate", "edit"]})
             if path == "/runtime":
@@ -58,7 +63,8 @@ class GpuStudioTests(unittest.TestCase):
             if path == "/jobs/img-001/cancel" and req.method == "POST":
                 return httpx.Response(200, json={"cancelled": True})
             if path == "/outputs/img-001/scene-000.png":
-                return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nphoto")
+                return httpx.Response(200, content=(
+                    b"<script>alert(1)</script>" if self.corrupt_image else b"\x89PNG\r\n\x1a\nphoto"))
             if path == "/v1/jobs/wav-001" and req.method == "GET":
                 return httpx.Response(200, json={
                     "id": "wav-001", "status": "completed", "audio_duration_seconds": 3,
@@ -191,6 +197,108 @@ class GpuStudioTests(unittest.TestCase):
         self.login("guest")
         self.assertEqual(self.client.get("/imagen-studio/").status_code, 401)
         self.assertEqual(self.client.get(base + "/config").status_code, 401)
+
+    def test_readiness_requires_explicit_true_even_with_http_200(self):
+        self.login()
+        headers = self.token("imagen")
+        self.configure("imagen", headers)
+        self.ready = False
+        state = self.client.get("/api/experiment-gpu/imagen/health")
+        self.assertEqual(state.status_code, 200)
+        self.assertTrue(state.json()["alive"])
+        self.assertFalse(state.json()["ready"])
+
+    def test_invalid_generation_numbers_return_422_not_500(self):
+        self.login()
+        headers = self.token("imagen")
+        self.configure("imagen", headers)
+        base = "/api/experiment-gpu/imagen/jobs"
+        for bad in ({"width": "bogus"}, {"height": "3.5"}, {"count": "nope"}):
+            result = self.client.post(base, headers=headers,
+                                      data={"prompt": "Photorealistic scene", **bad})
+            self.assertEqual(result.status_code, 422, result.text)
+
+    def test_invalid_gpu_image_bytes_fail_closed_without_cached_html(self):
+        self.login()
+        headers = self.token("imagen")
+        self.configure("imagen", headers)
+        base = "/api/experiment-gpu/imagen"
+        self.client.post(base + "/jobs", headers=headers,
+                         data={"prompt": "Photorealistic scene"})
+        self.corrupt_image = True
+        result = self.client.get(base + "/jobs/img-001/media?preview=1")
+        self.assertEqual(result.status_code, 502)
+        self.assertNotIn("text/html", result.headers.get("content-type", ""))
+        self.corrupt_image = False
+        valid = self.client.get(base + "/jobs/img-001/media?preview=1")
+        self.assertEqual(valid.status_code, 200, valid.text[:100] if valid.headers["content-type"].startswith("text/") else "")
+        self.assertEqual(valid.headers["x-content-type-options"], "nosniff")
+        self.assertEqual(valid.headers["x-vps-media-saved"], "true")
+
+    def test_saved_output_remains_private_and_available_when_gpu_swaps(self):
+        self.login("alice")
+        headers = self.token("imagen")
+        self.configure("imagen", headers)
+        base = "/api/experiment-gpu/imagen"
+        created = self.client.post(base + "/jobs", headers=headers,
+                                   data={"prompt": "Photorealistic scene"})
+        self.assertEqual(created.status_code, 202)
+        self.assertEqual(self.client.get(base + "/jobs/img-001").json()["status"], "completed")
+        first = self.client.get(base + "/jobs/img-001/media?preview=1")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.headers["x-vps-media-saved"], "true")
+        self.assertIn("inline", first.headers["content-disposition"])
+        from stat import S_IMODE
+        media = self.bridge.saved_path("imagen", "alice", "img-001", 0)
+        self.assertTrue(media.is_file())
+        self.assertEqual(S_IMODE(media.stat().st_mode), 0o600)
+        self.login("bob")
+        self.assertEqual(self.client.get(base + "/jobs/img-001/media").status_code, 404)
+        self.login("alice")
+        headers = self.token("imagen")
+        prior = os.environ["EXPERIMENT_GPU_ALLOWED_HOSTS"]
+        os.environ["EXPERIMENT_GPU_ALLOWED_HOSTS"] = "worker.example,other.example"
+        self.addCleanup(lambda: os.environ.__setitem__("EXPERIMENT_GPU_ALLOWED_HOSTS", prior))
+        change = self.client.post(base + "/config", headers=headers, json={
+            "endpoint": "https://other.example"})
+        self.assertEqual(change.status_code, 200, change.text)
+        self.upstream_offline = True
+        offline = self.client.get(base + "/jobs/img-001").json()
+        self.assertEqual(offline["status"], "completed")
+        self.assertEqual(offline["output_count"], 1)
+        self.assertEqual(offline["saved_output_count"], 1)
+        self.assertIn("previous GPU gateway", offline["worker_error"])
+        saved = self.client.get(base + "/jobs/img-001/media")
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.content, first.content)
+        self.assertEqual(saved.headers["x-vps-media-saved"], "true")
+        self.assertIn("attachment", saved.headers["content-disposition"])
+        self.assertEqual(self.client.get(base + "/jobs").json()["items"][0]["id"], "img-001")
+
+    def test_job_not_cached_is_not_misrouted_after_gateway_swap(self):
+        self.login()
+        headers = self.token("imagen")
+        self.configure("imagen", headers)
+        base = "/api/experiment-gpu/imagen"
+        self.assertEqual(self.client.post(base + "/jobs", headers=headers,
+                                          data={"prompt": "Photorealistic scene"}).status_code, 202)
+        os.environ["EXPERIMENT_GPU_ALLOWED_HOSTS"] = "worker.example,other.example"
+        self.assertEqual(self.client.post(base + "/config", headers=headers,
+                                          json={"endpoint": "https://other.example"}).status_code, 200)
+        missing = self.client.get(base + "/jobs/img-001/media")
+        self.assertEqual(missing.status_code, 409)
+        self.assertEqual(self.client.post(base + "/jobs/img-001/cancel",
+                                          headers=headers).status_code, 409)
+
+    def test_duplicate_worker_id_does_not_replace_saved_job(self):
+        self.login()
+        headers = self.token("imagen")
+        self.configure("imagen", headers)
+        base = "/api/experiment-gpu/imagen"
+        payload = {"prompt": "Photorealistic scene"}
+        self.assertEqual(self.client.post(base + "/jobs", headers=headers, data=payload).status_code, 202)
+        self.assertEqual(self.client.post(base + "/jobs", headers=headers, data=payload).status_code, 409)
+        self.assertEqual(len(self.client.get(base + "/jobs").json()["items"]), 1)
 
     def test_gpu_configuration_has_private_filesystem_permissions(self):
         import stat
