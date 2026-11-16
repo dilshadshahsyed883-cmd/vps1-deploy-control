@@ -634,8 +634,12 @@ class ImagenBatchQueue:
                 "SELECT state,remote_job_id,lease_until FROM imagen_batch_items WHERE batch_id=?",
                 (batch_id,)
             ).fetchall()
-            if any(row["state"] not in ("pending", "saved", "failed", "deleted") or
-                   row["lease_until"] > int(time.time()) for row in items):
+            if any(
+                (row["state"] not in ("pending", "saved", "failed", "deleted")
+                 and not (row["state"] == "waiting_gpu" and not row["remote_job_id"]))
+                or row["lease_until"] > int(time.time())
+                for row in items
+            ):
                 raise HTTPException(409, "Batch has active GPU jobs; finish them before deleting")
             for job_id in {row["remote_job_id"] for row in items if row["remote_job_id"]}:
                 db.execute("DELETE FROM imagen_deleted_outputs WHERE job_id=?", (job_id,))
