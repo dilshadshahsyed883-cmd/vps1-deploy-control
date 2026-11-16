@@ -14,6 +14,7 @@
   <nav class="eg-tabs" role="tablist" aria-label="{{ studio_title }} sections">
     <button type="button" data-eg-tab="production" role="tab" aria-selected="true" class="active">Production</button>
     <button type="button" data-eg-tab="jobs" role="tab" aria-selected="false">Jobs &amp; Outputs</button>
+    {% if studio == 'imagen' %}<button type="button" data-eg-tab="gallery" role="tab" aria-selected="false">Gallery</button>{% endif %}
     <button type="button" data-eg-tab="models" role="tab" aria-selected="false">Models</button>
     <button type="button" data-eg-tab="gpu" role="tab" aria-selected="false">GPU Config</button>
   </nav>
@@ -47,7 +48,7 @@
             <option>Portuguese</option><option>Italian</option>
           </select>
         </div>
-        <div><label for="eg-reference">Reference voice WAV (up to 20 MB)</label><input id="eg-reference" name="reference" type="file" accept=".wav,audio/wav" required></div>
+        <div><label for="eg-reference">Reference voice WAV (up to 20 MB)</label><input id="eg-reference" name="reference" type="file" accept=".wav,audio/wav" required><audio id="eg-voice-preview" controls hidden style="width:100%;margin-top:8px"></audio></div>
       </div>
       <label for="eg-ref-text">Exact transcript of reference recording</label>
       <textarea id="eg-ref-text" name="ref_text" rows="3" maxlength="3000" required placeholder="Words spoken in the reference WAV..."></textarea>
@@ -63,6 +64,14 @@
       <div id="eg-job-list" class="eg-job-list"><p class="eg-muted">No jobs submitted.</p></div>
     </div>
   </section>
+  {% if studio == 'imagen' %}
+  <section class="eg-section" id="eg-gallery" hidden>
+    <div class="eg-card"><div class="eg-row"><h3>Generated Image Gallery</h3><button id="eg-refresh-gallery" class="eg-btn secondary" type="button">Refresh</button></div>
+      <p class="eg-muted">Verified images are loaded from your authenticated GPU output gateway; no external image URLs are exposed.</p>
+      <div class="eg-gallery" id="eg-gallery-list"><p class="eg-muted">No images yet.</p></div>
+    </div>
+  </section>
+  {% endif %}
   <section class="eg-section" id="eg-models" hidden>
     <div class="eg-card">
       <h3>Deployed Model</h3>

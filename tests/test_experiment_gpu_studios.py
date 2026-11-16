@@ -201,6 +201,7 @@ class GpuStudioTests(unittest.TestCase):
         self.assertIn('href="/cloud-render/">Concat</a>', base)
         self.assertIn('id="cloud-heading">Concat</h2>', concat)
         self.assertIn('id="hg-models" hidden', heygen)
+        self.assertIn('id="eg-gallery" hidden', (root / "templates/experiment_gpu_studio.html").read_text())
         self.assertIn("register_cloud_render(app, templates, DATA_DIR", app)
         self.assertIn("register_heygen_studio(app, templates, DATA_DIR", app)
         self.assertIn("register_experiment_gpu_studios(app, templates, DATA_DIR", app)

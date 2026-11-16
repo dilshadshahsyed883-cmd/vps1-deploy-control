@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 import httpx
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
+from starlette.concurrency import run_in_threadpool
 
 KINDS = ("imagen", "voice-clone")
 IDS = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
@@ -445,7 +446,7 @@ def register_experiment_gpu_studios(app, templates, root, require_login, transpo
             reference = {"data": raw}
         if studio == "voice-clone" and reference is None:
             raise HTTPException(422, "Provide a voice reference WAV")
-        return bridge.create(studio, user, data, reference=reference)
+        return await run_in_threadpool(bridge.create, studio, user, data, reference=reference)
 
     @app.get("/api/experiment-gpu/{studio}/jobs")
     def listing(request: Request, studio: str):
