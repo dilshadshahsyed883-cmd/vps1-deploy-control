@@ -128,7 +128,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 
 <link rel="stylesheet" href="/static/vps1_native_site_shell.css?v=20261020-sidebar-stable-v4&song=20261029&studio-permissions=20261031">
 <link rel="stylesheet" href="/static/vps1_video_studio_geometry.css?v=20261020-geometry-v1&layout=video-v2">
-<script defer src="/static/vps1_native_site_shell.js?v=20261020-sidebar-stable-v4&shell-contract=2-canonical&nav=auto-script-v1&song=20261029&copyright=20261030&copyright-nav=20261030-v3&studio-permissions=20261031&experiment-hide=20261109&heygen=20261115" data-unify-sidebar="1"></script>
+<script defer src="/static/vps1_native_site_shell.js?v=20261020-sidebar-stable-v4&shell-contract=2-canonical&nav=auto-script-v1&song=20261029&copyright=20261030&copyright-nav=20261030-v3&studio-permissions=20261031&experiment-hide=20261109&heygen=20261115&experiment-ai=20261116" data-unify-sidebar="1"></script>
 {% if page in ['queue','settings','audit_media','scene_media_library'] %}<link rel="stylesheet" href="/static/scene_builder_kokoro_parity_20261020.css?v=1">{% endif %}
 </head>
 <body{% if page in ['queue','settings','audit_media'] and (request.query_params|default({})).get('acs_audio_embed') != '1' %} data-scene-ui="sml-compact"{% endif %} class="{% if page=='dashboard' %}dashboard-page{% endif %}{% if page in ['queue','settings','audit_media','scene_media_library'] %} vps1-scene-parity{% endif %}">
@@ -146,7 +146,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 {% if request.session.get("is_admin") or "short" in request.session.get("studio_access", ()) %}<a class="{% if page=='short_studio' %}active{% endif %}" href="/short-maker">Short Studio</a>{% endif %}
 {% if request.session.get("is_admin") or "copyright" in request.session.get("studio_access", ()) %}<a href="/video-merger/">Copyright Studio</a>{% endif %}
 {% if request.session.get("is_admin") or "voice" in request.session.get("studio_access", ()) %}<a class="{% if page=='voice_studio' %}active{% endif %}" href="/voice-studio/app#vps1-production">Voice Studio</a>{% endif %}
-{% if request.session.get("is_admin") %}<a class="{% if page in ['experiment_studio','auto_script','local_upload_manager','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded','cloud_render','heygen_studio'] %}active{% endif %}" href="/experiment-studio/">Experiment Studio</a>{% endif %}
+{% if request.session.get("is_admin") %}<a class="{% if page in ['experiment_studio','auto_script','local_upload_manager','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded','cloud_render','heygen_studio','imagen_studio','voice_clone_studio'] %}active{% endif %}" href="/experiment-studio/">Experiment Studio</a>{% endif %}
 {% if not request.session.get("is_admin") %}<a class="{% if page=='heygen_studio' %}active{% endif %}" href="/heygen-studio/">HeyGen Studio</a>{% endif %}
 <!-- Experiment Studio tabs are presentation-only; hidden tools and their routes are preserved. -->
 
@@ -179,12 +179,14 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 </aside>
 <main class="{% if page in ['auto_caption_studio','auto_caption_live'] %}acs-main {% endif %}{% if page in ['script_work','algrow_voice','auto_caption_studio','auto_caption_live'] %}story-suite-main {% endif %}{% if page=='atomic_flow' %}atomic-flow-main{% endif %}{% if page=='youtube_niche_research' %} ynr-main{% endif %}">
 {% if page=='song_studio' %}<nav class="vps1-native-video-tabs vps1-song-studio-tabs" aria-label="Song Studio"><a href="/audio-downloader/">Audio Downloader</a><a {% if studio_app=='song-maker' %}class="active" aria-current="page"{% endif %} href="/song-studio/song-maker/">Song Maker</a><a {% if studio_app=='song-uploader' %}class="active" aria-current="page"{% endif %} href="/song-uploader">Song Uploader</a></nav>{% endif %}
-{% if request.session.get('is_admin') and page in ['experiment_studio','auto_script','local_upload_manager','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded','cloud_render','heygen_studio'] %}
+{% if request.session.get('is_admin') and page in ['experiment_studio','auto_script','local_upload_manager','queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded','cloud_render','heygen_studio','imagen_studio','voice_clone_studio'] %}
 <nav class="vps1-experiment-tabs" aria-label="Experiment Studio">
   <a {% if page=='experiment_studio' %}class="active" aria-current="page"{% endif %} href="/experiment-studio/antidetect-browser/">Antidetect Browser</a>
   <a {% if page=='local_upload_manager' %}class="active" aria-current="page"{% endif %} href="/local-upload-manager/app?embedded=1&amp;tab=dashboard">Upload Studio</a>
-  <a {% if page=='cloud_render' %}class="active" aria-current="page"{% endif %} href="/cloud-render/">Cloud Render</a>
+  <a {% if page=='cloud_render' %}class="active" aria-current="page"{% endif %} href="/cloud-render/">Concat</a>
   <a {% if page=='heygen_studio' %}class="active" aria-current="page"{% endif %} href="/heygen-studio/">HeyGen Studio</a>
+  <a {% if page=='voice_clone_studio' %}class="active" aria-current="page"{% endif %} href="/voice-clone-studio/">Voice Clone</a>
+  <a {% if page=='imagen_studio' %}class="active" aria-current="page"{% endif %} href="/imagen-studio/">Imagen</a>
 </nav>{% endif %}
 {% if page in ['queue','settings','audit_media','scene_media_library','auto_caption_studio','auto_caption_live','video_studio_embedded'] %}<nav data-video-studio-subnav="1" aria-label="Video Studio" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 12px;margin:0 0 18px;background:#f8faff;border:1px solid #dfe5ef;border-radius:11px;box-shadow:0 2px 8px rgba(28,44,78,.03)"><a href="/scene-builder/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if page in ['queue','settings','audit_media'] %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Scene Builder</a><a href="/auto-caption-studio/" style="text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:750;border:1px solid #d6ddea;white-space:nowrap;{% if page in ['auto_caption_studio','auto_caption_live'] %}background:#315edb;color:#fff;border-color:#315edb{% else %}background:#fff;color:#34415b{% endif %}">Auto Caption Studio</a></nav>{% endif %}
 
@@ -200,7 +202,7 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
 </header>
 {% elif page=='user_management' %}
 <header><div><h1>User Management</h1></div></header>
-{% elif page not in ['cloud_render', 'heygen_studio'] %}
+{% elif page not in ['cloud_render', 'heygen_studio', 'imagen_studio', 'voice_clone_studio'] %}
 <header class="{% if page in ['script_work','algrow_voice','auto_caption_studio','auto_caption_live'] %}story-suite-header{% endif %}"><div><h1>{% block title %}{% endblock %}</h1><p>{% block subtitle %}{% endblock %}</p></div></header>
 {% endif %}
 {% if page in ['script_work','algrow_voice'] %}

@@ -59,7 +59,7 @@ class ExperimentNavigation(unittest.TestCase):
         # Routes still exist; only their menu entries are hidden.
         for label in ("Self Media Library", "Auto Script", "Video Studio"):
             self.assertNotIn(f'["{label}",', script)
-        for label in ("Antidetect Browser", "Upload Studio", "Cloud Render"):
+        for label in ("Antidetect Browser", "Upload Studio", "Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
             self.assertIn(f'["{label}",', script)
         css=(SCENE/"static/vps1_native_site_shell.css").read_text()
         for selector in (".vps1-native-experiment-tabs","body.vps1-native-library .app-shell",

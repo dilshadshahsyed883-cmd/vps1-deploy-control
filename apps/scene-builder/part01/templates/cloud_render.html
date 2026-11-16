@@ -1,14 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Cloud Render{% endblock %}
+{% block title %}Concat{% endblock %}
 {% block subtitle %}Concat Production queue, rendered media and SaladCloud GPU connection{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="/static/cloud_render.css?v=20261104-v1">
 <section id="cloud-render" data-csrf="{{ csrf_token }}" aria-labelledby="cloud-heading">
   <header class="cr-header">
-    <div><div class="cr-eyebrow">EXPERIMENT STUDIO / ADMIN ONLY</div><h2 id="cloud-heading">Cloud Render</h2><p>Queue Concat projects from Google Drive, render on SaladCloud and manage the verified MP4s.</p></div>
+    <div><div class="cr-eyebrow">EXPERIMENT STUDIO / ADMIN ONLY</div><h2 id="cloud-heading">Concat</h2><p>Queue Concat projects from Google Drive, render on SaladCloud and manage the verified MP4s.</p></div>
     <span id="cr-health" class="cr-pill">Worker not connected</span>
   </header>
-  <nav class="cr-tabs" aria-label="Cloud Render tabs">
+  <nav class="cr-tabs" aria-label="Concat tabs">
     <button class="active" type="button" data-tab="production" aria-selected="true">Production</button>
     <button type="button" data-tab="media" aria-selected="false">Media</button>
     <button type="button" data-tab="gpu" aria-selected="false">GPU Config</button>

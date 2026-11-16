@@ -820,6 +820,9 @@ CLOUD_RENDER = register_cloud_render(app, templates, DATA_DIR, require_admin, re
 from heygen_studio import register_heygen_studio
 HEYGEN_STUDIO = register_heygen_studio(app, templates, DATA_DIR, require_login, require_login)
 
+from experiment_gpu_studios import register_experiment_gpu_studios
+EXPERIMENT_GPU_STUDIOS = register_experiment_gpu_studios(app, templates, DATA_DIR, require_login)
+
 @app.get("/api/session/identity")
 def scene_session_identity(request: Request):
     """Current Scene database role for native independent-app navigation.

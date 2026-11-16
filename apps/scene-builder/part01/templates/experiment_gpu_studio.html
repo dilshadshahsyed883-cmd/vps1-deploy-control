@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ studio_title }}{% endblock %}
+{% block subtitle %}Independent Salad GPU production{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/experiment_gpu_studio.css?v=20261116-1">
+<section id="eg-root" class="eg" data-studio="{{ studio }}" data-csrf="{{ csrf_token }}">
+  <header class="eg-heading">
+    <div><div class="eg-eyebrow">EXPERIMENT STUDIO / OWNER-SCOPED</div>
+      <h2>{{ studio_title }}</h2>
+      <p>{% if studio == 'imagen' %}Generate and edit AI images with the deployed Imagen model.{% else %}Generate cloned narration with the deployed Voice Clone model.{% endif %}</p>
+    </div>
+    <span class="eg-pill" id="eg-connection">GPU not configured</span>
+  </header>
+  <nav class="eg-tabs" role="tablist" aria-label="{{ studio_title }} sections">
+    <button type="button" data-eg-tab="production" role="tab" aria-selected="true" class="active">Production</button>
+    <button type="button" data-eg-tab="jobs" role="tab" aria-selected="false">Jobs &amp; Outputs</button>
+    {% if studio == 'imagen' %}<button type="button" data-eg-tab="gallery" role="tab" aria-selected="false">Gallery</button>{% endif %}
+    <button type="button" data-eg-tab="models" role="tab" aria-selected="false">Models</button>
+    <button type="button" data-eg-tab="gpu" role="tab" aria-selected="false">GPU Config</button>
+  </nav>
+  <p class="eg-feedback" id="eg-message" role="status" aria-live="polite"></p>
+  <section class="eg-section" id="eg-production">
+    {% if studio == 'imagen' %}
+    <form class="eg-card" id="eg-create">
+      <h3>Generate / Edit Image</h3>
+      <label for="eg-prompt">Image prompt</label>
+      <textarea id="eg-prompt" name="prompt" rows="5" maxlength="4000" required placeholder="Cinematic photorealistic documentary scene, natural lighting, highly detailed..."></textarea>
+      <div class="eg-grid">
+        <div><label for="eg-mode">Mode</label><select id="eg-mode" name="mode"><option value="generate">Generate</option><option value="edit">Edit reference image</option></select></div>
+        <div><label for="eg-count">Image count</label><input id="eg-count" name="count" type="number" min="1" max="8" value="1"></div>
+        <div><label for="eg-width">Width</label><select name="width" id="eg-width"><option value="1024">1024</option><option value="768">768</option><option value="512">512</option></select></div>
+        <div><label for="eg-height">Height</label><select name="height" id="eg-height"><option value="576">576 (16:9)</option><option value="1024">1024</option><option value="768">768</option><option value="512">512</option></select></div>
+      </div>
+      <div id="eg-edit-wrap" hidden><label for="eg-reference">Reference JPG, PNG or WebP (up to 12 MB)</label><input id="eg-reference" type="file" name="reference" accept="image/png,image/jpeg,image/webp"></div>
+      <p class="eg-muted">Editing is available only when the currently deployed model supports assets and edit jobs. Unsupported engines will report an error instead of silently falling back.</p>
+      <button class="eg-btn primary" type="submit" id="eg-submit">Generate Images</button>
+    </form>
+    {% else %}
+    <form class="eg-card" id="eg-create">
+      <h3>Clone a Voice / Generate Speech</h3>
+      <label for="eg-text">Narration text</label>
+      <textarea id="eg-text" name="text" rows="6" maxlength="20000" required placeholder="Enter the narration you want the cloned voice to speak."></textarea>
+      <div class="eg-grid">
+        <div><label for="eg-language">Output language</label>
+          <select name="language" id="eg-language">
+            <option>English</option><option>Chinese</option><option>Japanese</option><option>Korean</option>
+            <option>French</option><option>German</option><option>Russian</option><option>Spanish</option>
+            <option>Portuguese</option><option>Italian</option>
+          </select>
+        </div>
+        <div><label for="eg-reference">Reference voice WAV (up to 20 MB)</label><input id="eg-reference" name="reference" type="file" accept=".wav,audio/wav" required><audio id="eg-voice-preview" controls hidden style="width:100%;margin-top:8px"></audio></div>
+      </div>
+      <label for="eg-ref-text">Exact transcript of reference recording</label>
+      <textarea id="eg-ref-text" name="ref_text" rows="3" maxlength="3000" required placeholder="Words spoken in the reference WAV..."></textarea>
+      <p class="eg-muted">Current Qwen3-TTS adapter. Use only a voice you own or have permission to clone. Existing OmniVoice in Voice Studio is unchanged.</p>
+      <button class="eg-btn primary" type="submit" id="eg-submit">Generate Audio</button>
+    </form>
+    {% endif %}
+  </section>
+  <section class="eg-section" id="eg-jobs" hidden>
+    <div class="eg-card">
+      <div class="eg-row"><div><h3>My Jobs</h3><p class="eg-muted">Job records belong to your VPS account and remain listed when the worker goes offline.</p></div>
+        <button type="button" class="eg-btn secondary" id="eg-refresh-jobs">Refresh</button></div>
+      <div id="eg-job-list" class="eg-job-list"><p class="eg-muted">No jobs submitted.</p></div>
+    </div>
+  </section>
+  {% if studio == 'imagen' %}
+  <section class="eg-section" id="eg-gallery" hidden>
+    <div class="eg-card"><div class="eg-row"><h3>Generated Image Gallery</h3><button id="eg-refresh-gallery" class="eg-btn secondary" type="button">Refresh</button></div>
+      <p class="eg-muted">Verified images are loaded from your authenticated GPU output gateway; no external image URLs are exposed.</p>
+      <div class="eg-gallery" id="eg-gallery-list"><p class="eg-muted">No images yet.</p></div>
+    </div>
+  </section>
+  {% endif %}
+  <section class="eg-section" id="eg-models" hidden>
+    <div class="eg-card">
+      <h3>Deployed Model</h3>
+      <p class="eg-muted">One stable web control and one Salad container per project. Different model branches publish different GHCR images. Switching the image is an explicit Salad deployment action, not a browser operation.</p>
+      <p class="eg-muted"><b>Reported image tag:</b> <span id="eg-image-label">Not configured</span> (informational, not a verified runtime digest)</p>
+      <button type="button" class="eg-btn secondary" id="eg-check-model">Read GPU capabilities</button>
+      <pre id="eg-model-info" class="eg-engine">Connect GPU to inspect model readiness.</pre>
+    </div>
+  </section>
+  <section class="eg-section" id="eg-gpu" hidden>
+    <form class="eg-card" id="eg-config">
+      <h3>{{ studio_title }} Salad GPU Connection</h3>
+      <p class="eg-muted">Credentials stay on VPS_1. Save config only; this form does not create, resize or switch a Salad container.</p>
+      <label for="eg-endpoint">Salad gateway HTTPS URL</label>
+      <input type="url" name="endpoint" id="eg-endpoint" placeholder="https://your-worker.salad.cloud" autocomplete="off">
+      <label for="eg-api-key">Worker API token</label>
+      <input type="password" id="eg-api-key" name="api_key" autocomplete="new-password" placeholder="Leave blank to keep saved token">
+      <small id="eg-api-key-state">No token saved</small>
+      <label for="eg-salad-key">Salad gateway API key</label>
+      <input type="password" id="eg-salad-key" name="salad_key" autocomplete="new-password" placeholder="Leave blank to keep saved key">
+      <small id="eg-salad-key-state">No Salad gateway key saved</small>
+      {% if studio == 'imagen' %}
+      <label for="eg-auth-mode">Model worker authentication</label>
+      <select id="eg-auth-mode" name="auth_mode">
+        <option value="x-api-key">X-API-Key (FLUX / SANA)</option>
+        <option value="x-renderer-token">X-Renderer-Token (Z-Image)</option>
+      </select>
+      {% else %}
+      <input type="hidden" name="auth_mode" id="eg-auth-mode" value="bearer">
+      {% endif %}
+      <label for="eg-image-ref">Deployed image tag (optional, informational)</label>
+      <input id="eg-image-ref" name="image_ref" placeholder="ghcr.io/...:model-sha" autocomplete="off">
+      <p class="eg-muted">Use a verified, immutable tag. Saving the tag does not apply it to Salad or confirm it is running.</p>
+      <div class="eg-actions">
+        <button type="submit" class="eg-btn primary" id="eg-save-config">Save GPU Config</button>
+        <button type="button" class="eg-btn secondary" id="eg-test">Test Connection</button>
+      </div>
+      <pre id="eg-health-info" class="eg-engine" hidden></pre>
+    </form>
+  </section>
+</section>
+<script defer src="/static/experiment_gpu_studio.js?v=20261116-1"></script>
+{% endblock %}

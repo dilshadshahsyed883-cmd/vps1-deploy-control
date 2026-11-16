@@ -37,7 +37,7 @@ class ExperimentNavigationGatewayTests(unittest.TestCase):
             'const EXPERIMENT_NAV = Object.freeze([\n'
             '["Antidetect Browser","/experiment-studio/antidetect-browser/","antidetect"],\n'
             '["Upload Studio","/local-upload-manager/app","upload"],\n'
-            '["Cloud Render","/cloud-render/","cloud-render"]\n'
+            '["Concat","/cloud-render/","cloud-render"]\n'
             ']);'
         )
         return root, site, js if js is not None else valid_js
@@ -71,7 +71,7 @@ class ExperimentNavigationGatewayTests(unittest.TestCase):
     def test_hidden_menu_regression_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root, site, js = self.fixture(directory)
-            js = js.replace('["Cloud Render",', '["Video Studio","/scene-builder/","video"],\n["Cloud Render",')
+            js = js.replace('["Concat",', '["Video Studio","/scene-builder/","video"],\n["Concat",')
             with self.assertRaisesRegex(RuntimeError, "hidden tab reappeared"):
                 self.verify(root, site, js)
 

@@ -13,6 +13,7 @@
   <nav class="hg-tabs" aria-label="HeyGen Studio sections">
     <button type="button" class="active" data-tab="create" aria-selected="true">Create Video</button>
     <button type="button" data-tab="jobs" aria-selected="false">Jobs &amp; Videos</button>
+    <button type="button" data-tab="models" aria-selected="false">Models</button>
     <button type="button" data-tab="gpu" aria-selected="false">GPU Config</button>
   </nav>
   <p id="hg-message" role="status" aria-live="polite"></p>
@@ -51,6 +52,15 @@
         <button class="hg-btn secondary" type="button" id="hg-refresh">Refresh</button>
       </div></div>
     <div id="hg-list" class="hg-list"><p class="hg-note">No jobs yet.</p></div>
+  </section>
+  <section class="hg-section" id="hg-models" hidden>
+    <div class="hg-card">
+      <h3>Deployed GPU engine</h3>
+      <p class="hg-note">One fixed HeyGen web control and Salad container. Engine branches publish separate Docker images; changing the running model requires an explicit, verified Salad image swap outside this page.</p>
+      <div class="hg-field"><label>Configured image reference (not verified runtime digest)</label><input id="hg-model-image" readonly value="Not reported"></div>
+      <div class="hg-actions"><button type="button" class="hg-btn secondary" id="hg-refresh-model">Check GPU engine</button></div>
+      <pre id="hg-model-details" class="hg-engine" role="status">Use Check GPU engine to retrieve worker-reported model readiness.</pre>
+    </div>
   </section>
   <section class="hg-section" id="hg-gpu" hidden>
     <form class="hg-card" id="hg-gpu-form">

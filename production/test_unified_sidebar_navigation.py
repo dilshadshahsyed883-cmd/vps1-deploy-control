@@ -133,7 +133,7 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('experiment-studio|self-media-library', source)
         self.assertIn('["acs", "uploader", "stream", "library"].includes(app)', source)
         visible_nav = source.split("const EXPERIMENT_NAV =", 1)[1].split("]);", 1)[0]
-        for label in ("Antidetect Browser", "Upload Studio", "Cloud Render"):
+        for label in ("Antidetect Browser", "Upload Studio", "Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
             self.assertIn(f'["{label}",', visible_nav)
         for label in ("Auto Script", "Self Media Library", "Video Studio"):
             self.assertNotIn(f'["{label}",', visible_nav)
