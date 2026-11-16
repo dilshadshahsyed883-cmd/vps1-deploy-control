@@ -362,7 +362,7 @@ class ImagenBatchQueue:
                     "height": row["height"], "count": 1,
                 })
                 job_id = result["id"]
-                self._batch_update(row, token, "submitted", job_id=job_id, delay=3, increment=True)
+                self._batch_update(row, token, "submitted", job_id=job_id, increment=True)
                 return
             status = self.bridge.status("imagen", owner, job_id)
             if status.get("worker_error"):
