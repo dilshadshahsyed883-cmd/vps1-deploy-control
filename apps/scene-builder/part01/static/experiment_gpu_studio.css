@@ -38,3 +38,7 @@
 .eg-batch-item small{color:#b42336;flex-basis:100%;overflow-wrap:anywhere}
 .eg-batch-item a{color:#315edb}
 .eg-batch-details[hidden]{display:none}
+
+.eg-btn.danger{background:#fff5f5;border-color:#f2b8b8;color:#a31932;min-height:34px;padding:7px 10px;font-size:12px}
+.eg-btn.danger:hover{background:#ffe9e9}
+.eg-gallery .eg-btn.danger{display:inline-flex;margin:8px 0 2px}
