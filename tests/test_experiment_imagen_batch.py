@@ -237,6 +237,16 @@ class ImagenBatchTests(unittest.TestCase):
         self.assertEqual(self.client.delete(base + f"/batches/{batch_id}").status_code, 403)
         self.assertEqual(self.client.delete(base + f"/batches/{batch_id}", headers=self.csrf).status_code, 200)
         self.assertEqual(len(self.submissions), 0, "Deleting pending batch must not start GPU work")
+        original = self.bridge.transport
+        offline_id = self.client.post(base + "/batches", headers=self.csrf,
+            json={"prompts": "offline1: no GPU yet"}).json()["batch_id"]
+        self.bridge.transport = httpx.MockTransport(lambda req: httpx.Response(503))
+        self.bridge.imagen_queue.tick()  # waiting_gpu, no upstream job ID
+        self.assertEqual(self.client.get(base + f"/batches/{offline_id}").json()[
+            "items"][0]["state"], "waiting_gpu")
+        self.assertEqual(self.client.delete(base + f"/batches/{offline_id}",
+            headers=self.csrf).status_code, 200)
+        self.bridge.transport = original
         batch_id = self.client.post(base + "/batches", headers=self.csrf,
             json={"prompts": "p3: three"}).json()["batch_id"]
         self.bridge.imagen_queue.tick()  # submitted, but not saved
