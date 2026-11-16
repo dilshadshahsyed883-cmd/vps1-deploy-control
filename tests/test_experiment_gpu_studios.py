@@ -188,6 +188,11 @@ class GpuStudioTests(unittest.TestCase):
         self.assertEqual(self.client.get("/imagen-studio/").status_code, 401)
         self.assertEqual(self.client.get(base + "/config").status_code, 401)
 
+    def test_gpu_configuration_has_private_filesystem_permissions(self):
+        import stat
+        self.assertEqual(stat.S_IMODE(self.bridge.root.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(self.bridge.db.stat().st_mode), 0o600)
+
     def test_old_studios_and_salad_routes_preserved(self):
         root = SCENE
         base = (root / "templates/base.html").read_text()

@@ -66,7 +66,8 @@ def image_bytes(data: bytes) -> str:
 class ExperimentGpuStudios:
     def __init__(self, root: Path, transport=None):
         self.root = Path(root) / "experiment-gpu-studios"
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(self.root, 0o700)
         self.db = self.root / "bridge.sqlite3"
         self.transport = transport
         with self.connection() as conn:
@@ -87,6 +88,7 @@ class ExperimentGpuStudios:
             );
             CREATE INDEX IF NOT EXISTS ix_gpu_jobs_owner ON gpu_jobs(studio,owner,created_at);
             """)
+        os.chmod(self.db, 0o600)  # Secrets are never group/world readable
 
     def connection(self):
         conn = sqlite3.connect(self.db, timeout=15)
