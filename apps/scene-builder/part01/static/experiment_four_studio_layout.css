@@ -1,0 +1,40 @@
+/* VPS1_EXPERIMENT_FOUR_STUDIO_LAYOUT_V1
+   Only Concat, HeyGen Studio, Voice Clone and Imagen.
+   The already-approved native Upload Studio is deliberately unchanged.
+   The classic Scene main has a 1500px left-anchored ceiling; allow these
+   four routes to use the full post-sidebar viewport like native Upload. */
+@media (min-width:761px) {
+  body:has(#app-sidebar) > main.vps1-experiment-four-main {
+    box-sizing:border-box;
+    width:calc(100% - var(--vps1-sidebar-width,214px))!important;
+    max-width:none!important;
+    min-width:0;
+    margin-left:var(--vps1-sidebar-width,214px)!important;
+  }
+}
+/* The shared top navigation and the studio workspace must start/end at
+   identical x-coordinates; independent GPU studio CSS formerly capped its
+   content at 1250px while the navigation used 1400px. */
+main.vps1-experiment-four-main > .vps1-experiment-tabs,
+main.vps1-experiment-four-main > :is(#cloud-render,#heygen-studio,#eg-root) {
+  box-sizing:border-box;
+  width:100%!important;
+  max-width:var(--vps1-ui-content-max,1400px)!important;
+  min-width:0;
+  margin-left:auto!important;
+  margin-right:auto!important;
+}
+main.vps1-experiment-four-main > .vps1-experiment-tabs {
+  white-space:nowrap;
+  overflow-x:auto!important;
+  overflow-y:hidden!important;
+}
+@media (max-width:760px) {
+  body:has(#app-sidebar) > main.vps1-experiment-four-main {
+    box-sizing:border-box;
+    width:100%;
+    max-width:none;
+    min-width:0;
+    margin-left:0!important;
+  }
+}
