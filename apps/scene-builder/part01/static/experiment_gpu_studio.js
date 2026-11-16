@@ -234,7 +234,7 @@
           const media = apiRoot + "/jobs/" + encodeURIComponent(job.id) + "/media?index=" + i;
           const tile = document.createElement("figure");
           const photo = document.createElement("img");
-          photo.src = media; photo.loading = "lazy"; photo.alt = "Generated image " + (i + 1);
+          photo.src = media + "&preview=1"; photo.loading = "lazy"; photo.alt = "Generated image " + (i + 1);
           const caption = document.createElement("figcaption");
           caption.textContent = "Job " + job.id.slice(0, 12) + " / Image " + (i+1);
           tile.append(photo, caption, link("Download", media));

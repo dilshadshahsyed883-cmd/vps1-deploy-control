@@ -333,7 +333,7 @@ class ExperimentGpuStudios:
             )
         return {"ok": result.status_code in (200, 202, 204)}
 
-    def media(self, studio: str, owner: str, job_id: str, index: int = 0):
+    def media(self, studio: str, owner: str, job_id: str, index: int = 0, preview: bool = False):
         self.require_job(studio, owner, job_id)
         if studio == "voice-clone":
             path = "/v1/jobs/" + job_id + "/audio"
@@ -366,7 +366,8 @@ class ExperimentGpuStudios:
             raise HTTPException(413, "GPU output exceeds download safety limit")
         return Response(content=result.content, media_type=mimetype,
                         headers={"Cache-Control": "private, no-store",
-                                 "Content-Disposition": 'attachment; filename="' + name + '"'})
+                                 "Content-Disposition": (("inline" if studio == "imagen" and preview else "attachment")
+                                                         + '; filename="' + name + '"')})
 
 
 def register_experiment_gpu_studios(app, templates, root, require_login, transport=None):
@@ -471,9 +472,9 @@ def register_experiment_gpu_studios(app, templates, root, require_login, transpo
         return bridge.cancel(studio, user, job_id)
 
     @app.get("/api/experiment-gpu/{studio}/jobs/{job_id}/media")
-    def media(request: Request, studio: str, job_id: str, index: int = 0):
+    def media(request: Request, studio: str, job_id: str, index: int = 0, preview: bool = False):
         if studio not in KINDS:
             raise HTTPException(404, "Unknown studio")
-        return bridge.media(studio, owner(request), job_id, index=index)
+        return bridge.media(studio, owner(request), job_id, index=index, preview=preview)
 
     return bridge
