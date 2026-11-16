@@ -45,6 +45,12 @@ def mutation_allowed(method: str, path: str, editing_enabled: bool, auto_script_
         r"/api/experiment-gpu/imagen/batches/[0-9a-f]{32}/retry", path
     ):
         return True
+    if method == "DELETE" and (re.fullmatch(
+        r"/api/experiment-gpu/imagen/jobs/[A-Za-z0-9_-]{1,128}(?:/outputs/[0-7])?", path
+    ) or re.fullmatch(
+        r"/api/experiment-gpu/imagen/batches/[0-9a-f]{32}", path
+    )):
+        return True
     # HeyGen Studio: allow only exact owner-authenticated and CSRF-protected
     # configuration, queue and job actions. No blanket candidate write access.
     if (method, path) in {
