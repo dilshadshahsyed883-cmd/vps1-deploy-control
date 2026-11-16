@@ -81,7 +81,7 @@
     ["Antidetect Browser", "/experiment-studio/antidetect-browser/", "antidetect"],
     ["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"],
     ["Concat", "/cloud-render/", "cloud-render"],
-    ["HeyGen", "/heygen-studio/", "heygen"],
+    ["HeyGen Studio", "/heygen-studio/", "heygen"],
     ["Voice Clone", "/voice-clone-studio/", "voice-clone"],
     ["Imagen", "/imagen-studio/", "imagen"]
   ]);
