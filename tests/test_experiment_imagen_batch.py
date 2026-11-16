@@ -8,7 +8,9 @@ import re
 import struct
 import sys
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 import zipfile
 import zlib
 from pathlib import Path
@@ -44,6 +46,7 @@ class ImagenBatchTests(unittest.TestCase):
             os.environ.pop("EXPERIMENT_GPU_ALLOWED_HOSTS", None) if prior is None
             else os.environ.__setitem__("EXPERIMENT_GPU_ALLOWED_HOSTS", prior)))
         self.submissions = []
+        self.upstream_running = False
 
         def upstream(req):
             path = req.url.path
@@ -61,7 +64,7 @@ class ImagenBatchTests(unittest.TestCase):
             match = re.fullmatch(r"/jobs/(gpu-\d+)", path)
             if match:
                 return httpx.Response(200, json={
-                    "id": match.group(1), "status": "completed",
+                    "id": match.group(1), "status": "rendering" if self.upstream_running else "completed",
                     "outputs": [{"url": f"/jobs/{match.group(1)}/outputs/scene_001.png"}]})
             if re.fullmatch(r"/jobs/gpu-\d+/outputs/scene_001.png", path):
                 return httpx.Response(200, content=tiny_png())
@@ -113,6 +116,69 @@ class ImagenBatchTests(unittest.TestCase):
                     b"\x89PNG\r\n\x1a\nnotpng"):
             with self.assertRaises(HTTPException):
                 validate_png(bad)
+
+    def test_batch_pipeline_keeps_gpu_fed_without_exceeding_eight_inflight(self):
+        base = "/api/experiment-gpu/imagen"
+        self.upstream_running = True
+        response = self.client.post(base + "/batches", headers=self.csrf,
+            json={"prompts": "\n".join(f"p{i}: landscape {i}" for i in range(20))})
+        self.assertEqual(response.status_code, 202, response.text)
+        batch_id = response.json()["batch_id"]
+        queue = self.bridge.imagen_queue
+        queue.tick()
+        self.assertEqual(len(self.submissions), 8, "First tick must pipeline, not submit one")
+        states = [x["state"] for x in queue.details(batch_id)["items"]]
+        self.assertEqual(states.count("submitted"), 8)
+        self.assertEqual(states.count("pending"), 12)
+        queue.tick()  # Jobs are still rendering: cap must prevent runaway submissions.
+        self.assertEqual(len(self.submissions), 8)
+
+        self.upstream_running = False
+        with patch("experiment_imagen_batch.time.time", return_value=time.time() + 10):
+            queue.tick()
+        self.assertEqual(len(self.submissions), 16)
+        states = [x["state"] for x in queue.details(batch_id)["items"]]
+        self.assertEqual(states.count("saved"), 8)
+        self.assertEqual(states.count("submitted"), 8)
+        with patch("experiment_imagen_batch.time.time", return_value=time.time() + 20):
+            queue.tick()
+        self.assertEqual(len(self.submissions), 20)
+        with patch("experiment_imagen_batch.time.time", return_value=time.time() + 30):
+            queue.tick()
+        states = [x["state"] for x in queue.details(batch_id)["items"]]
+        self.assertEqual(states, ["saved"] * 20)
+        self.assertEqual(len(self.submissions), 20, "No duplicate remote job submissions")
+        self.assertTrue((queue.root / "batches" / batch_id / "p19.png").exists())
+
+    def test_gpu_unavailable_stops_new_batch_submissions_temporarily(self):
+        base = "/api/experiment-gpu/imagen"
+        result = self.client.post(base + "/batches", headers=self.csrf,
+            json={"prompts": "\n".join(f"p{i}: test {i}" for i in range(20))})
+        batch_id = result.json()["batch_id"]
+        original = self.bridge.transport
+        self.bridge.transport = httpx.MockTransport(
+            lambda req: httpx.Response(503) if req.method == "POST" and req.url.path == "/jobs"
+            else original.handle_request(req))
+        queue = self.bridge.imagen_queue
+        queue.tick()
+        states = [x["state"] for x in queue.details(batch_id)["items"]]
+        self.assertEqual(states.count("waiting_gpu"), 1)
+        self.assertEqual(states.count("pending"), 19)
+        self.assertGreater(queue.gpu_retry_after, time.monotonic())
+        queue.tick()
+        self.assertEqual(len(self.submissions), 0, "Offline worker must not receive a burst")
+
+    def test_single_job_transfer_still_runs_under_batch_load(self):
+        base = "/api/experiment-gpu/imagen"
+        created = self.client.post(base + "/jobs", headers=self.csrf,
+            data={"prompt": "Single request", "mode": "generate"})
+        self.assertEqual(created.status_code, 202)
+        job_id = created.json()["id"]
+        self.client.post(base + "/batches", headers=self.csrf,
+            json={"prompts": "\n".join(f"p{i}: image {i}" for i in range(20))})
+        self.bridge.imagen_queue.tick()
+        path = self.bridge.imagen_queue.root / "single" / job_id / "scene_001.png"
+        self.assertTrue(path.is_file(), "Existing single-image VPS transfer must not starve")
 
     def test_batch_is_persistent_and_zip_works_when_gpu_offline(self):
         base = "/api/experiment-gpu/imagen"

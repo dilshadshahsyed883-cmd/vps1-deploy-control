@@ -32,6 +32,12 @@ BATCH_ID = re.compile(r"[0-9a-f]{32}\Z")
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 MAX_IMAGE_BYTES = 32 * 1024 * 1024
 MAX_BATCH_PROMPTS = 1000
+# Keep Sana's serial GPU worker fed without exhausting its 16-slot API queue.
+# These are upper bounds per web queue cycle, not GPU parallelism settings.
+MAX_BATCH_INFLIGHT = 8
+MAX_BATCH_POLL_PER_TICK = 8
+MAX_BATCH_SUBMIT_PER_TICK = 8
+GPU_UNAVAILABLE_PAUSE_SECONDS = 20
 MAX_TEXT_BYTES = 256 * 1024
 MIN_FREE_BYTES = 1024 * 1024 * 1024
 MAX_VPS_BYTES = 15 * 1024 * 1024 * 1024
@@ -103,6 +109,7 @@ class ImagenBatchQueue:
         self.stop_event = threading.Event()
         self.wakeup = threading.Event()
         self.thread = None
+        self.gpu_retry_after = 0.0
         with self.connect() as db:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS imagen_batches (
@@ -163,14 +170,17 @@ class ImagenBatchQueue:
 
     def _run(self):
         while not self.stop_event.is_set():
+            processed = False
             try:
-                self.tick()
+                processed = self.tick()
             except Exception:
                 # Supervisor must remain alive; failed items keep their DB state
                 # and can be retried or recovered by another process.
                 import logging
                 logging.getLogger(__name__).exception("Imagen background queue cycle failed")
-            self.wakeup.wait(2)
+            # No fixed 2s penalty between ready submissions. Idle loops remain
+            # bounded; SQLite retry_at prevents repeated GPU status polling.
+            self.wakeup.wait(0.25 if processed else 1.0)
             self.wakeup.clear()
 
     def submit(self, config_owner: str, prompts: str, width=1024, height=576):
@@ -195,6 +205,10 @@ class ImagenBatchQueue:
                 "INSERT INTO imagen_batch_items(batch_id,prompt_id,ordinal,prompt) VALUES(?,?,?,?)",
                 [(batch_id, pid, i, prompt) for i, (pid, prompt) in enumerate(items)]
             )
+        # A new, explicitly submitted batch can probe a gateway that has
+        # recovered since a previous transient failure. Failed items keep
+        # their durable per-item retry_at backoff.
+        self.gpu_retry_after = 0.0
         self.wakeup.set()
         return {"batch_id": batch_id, "count": len(items), "status": "queued"}
 
@@ -256,16 +270,34 @@ class ImagenBatchQueue:
                        (job_id, config_owner))
         self.wakeup.set()
 
-    def _claim(self, table: str):
+    def _claim(self, table: str, *, phase="poll"):
         now = int(time.time())
         token = secrets.token_hex(12)
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if table == "batch":
-                row = db.execute("""
+                if phase not in ("poll", "submit"):
+                    raise ValueError("Unknown Imagen batch queue phase")
+                if phase == "submit":
+                    # Count leased submissions as well as jobs already accepted by
+                    # the GPU. The SQLite write lock makes this cap safe when
+                    # multiple website processes share the same database.
+                    active = db.execute("""
+                      SELECT COUNT(*) FROM imagen_batch_items
+                      WHERE (remote_job_id IS NOT NULL
+                             AND state IN ('submitted','waiting_gpu'))
+                         OR (remote_job_id IS NULL
+                             AND state IN ('pending','waiting_gpu') AND lease_until>?)
+                    """, (now,)).fetchone()[0]
+                    if active >= MAX_BATCH_INFLIGHT:
+                        return (None, None)
+                    state_filter = "i.remote_job_id IS NULL AND i.state IN ('pending','waiting_gpu')"
+                else:
+                    state_filter = "i.remote_job_id IS NOT NULL AND i.state IN ('submitted','waiting_gpu')"
+                row = db.execute(f"""
                   SELECT i.*,b.config_owner,b.gateway,b.width,b.height FROM imagen_batch_items i
                   JOIN imagen_batches b ON i.batch_id=b.id
-                  WHERE i.state IN ('pending','submitted','waiting_gpu')
+                  WHERE {state_filter}
                     AND i.retry_at<=? AND i.lease_until<=?
                   ORDER BY b.created_at,i.ordinal LIMIT 1
                 """, (now, now)).fetchone()
@@ -374,6 +406,8 @@ class ImagenBatchQueue:
                     self._batch_update(row, token, "failed", error="GPU job was lost after worker restart")
                 else:
                     self._batch_update(row, token, "waiting_gpu", delay=20, error="GPU status unavailable")
+                    self.gpu_retry_after = max(self.gpu_retry_after,
+                                               time.monotonic() + GPU_UNAVAILABLE_PAUSE_SECONDS)
                 return
             state = str(status.get("status", "")).lower()
             if state in ("completed", "succeeded", "done"):
@@ -384,11 +418,13 @@ class ImagenBatchQueue:
             elif state in ("failed", "cancelled", "interrupted", "error"):
                 self._batch_update(row, token, "failed", error=str(status.get("error") or state))
             else:
-                self._batch_update(row, token, "submitted", delay=5)
+                self._batch_update(row, token, "submitted", delay=2)
         except HTTPException as exc:
             if exc.status_code in (502, 503, 504, 507):
                 self._batch_update(row, token, "waiting_gpu", delay=20,
                                    error=str(exc.detail)[:120])
+                self.gpu_retry_after = max(self.gpu_retry_after,
+                                           time.monotonic() + GPU_UNAVAILABLE_PAUSE_SECONDS)
             else:
                 self._batch_update(row, token, "failed", error=str(exc.detail))
         except (OSError, ValueError, TypeError) as exc:
@@ -441,14 +477,32 @@ class ImagenBatchQueue:
             self._single_update(row, token, "failed", error=type(exc).__name__)
 
     def tick(self):
-        # Small synchronous units: persist the worker job ID immediately after POST,
-        # then poll remotely on subsequent cycles. No browser needs to stay open.
-        row, token = self._claim("batch")
-        if row:
+        # Reconcile completed/in-flight GPU jobs first, then keep up to eight
+        # additional jobs ahead of the serial Sana worker. Separate phases avoid
+        # immediately re-polling a job submitted in this same cycle.
+        # Each claim still uses a durable SQLite lease across web processes.
+        processed = False
+        for _ in range(MAX_BATCH_POLL_PER_TICK):
+            row, token = self._claim("batch", phase="poll")
+            if not row:
+                break
+            processed = True
             self._run_batch(row, token)
+        if time.monotonic() >= self.gpu_retry_after:
+            for _ in range(MAX_BATCH_SUBMIT_PER_TICK):
+                if time.monotonic() < self.gpu_retry_after:
+                    break
+                row, token = self._claim("batch", phase="submit")
+                if not row:
+                    break
+                processed = True
+                self._run_batch(row, token)
+        # Manual single-image output transfers continue independently.
         row, token = self._claim("single")
         if row:
+            processed = True
             self._run_single(row, token)
+        return processed
 
     def _read_verified(self, path: Path, expected: str) -> bytes:
         try:
