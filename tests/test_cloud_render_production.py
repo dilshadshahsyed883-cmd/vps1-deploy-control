@@ -38,8 +38,6 @@ class WorkerFixture(Worker):
         self.sessions = {}
         self.jobs = {}
         self.output = MP4
-        self.valid = True
-        self.manifest_limit = 64 * 1024 ** 2
         self.fail_put_once = False
         self.lose_complete_once = False
         self.requests = []
@@ -53,15 +51,8 @@ class WorkerFixture(Worker):
         if path == "/api/config/concurrency":
             self.concurrency = kwargs["json"]["concurrency"]
             return {"concurrency": self.concurrency}
-        if path == "/api/capabilities":
-            caps = {"api_version": 1, "validation_version": 1, "bundle_versions": [1],
-                    "render_modes": [MODE]}
-            if self.manifest_limit is not None:
-                caps["max_project_manifest_bytes"] = self.manifest_limit
-            return caps
-        if path == "/api/validate":
-            json.loads(kwargs["data"])
-            return {"ok": self.valid, "errors": ["Unsupported effect fixture"]}
+        if path in ("/api/capabilities", "/api/validate"):
+            raise AssertionError("VPS_1 must not inspect Concat renderer capabilities or validate effects")
         parts = path.split("/")
         job = parts[3]
         if parts[2] == "jobs":
@@ -245,7 +236,6 @@ class ProductionTest(unittest.TestCase):
     def test_vps_is_a_transport_and_does_not_validate_render_features(self):
         # Only Concat's worker owns manifest feature compatibility.  The VPS
         # must not call /api/validate, nor reject a worker capability field.
-        self.worker.valid = False
         job = self.start_file()
         self.assertEqual(self.state(), "Rendering")
         self.assertNotIn(("GET", "/api/capabilities"), self.worker.requests)
@@ -255,8 +245,7 @@ class ProductionTest(unittest.TestCase):
         self.queue.tick()
         self.assertEqual(self.state(), "Completed")
 
-    def test_worker_without_advertised_manifest_limit_can_render(self):
-        self.worker.manifest_limit = None
+    def test_render_dispatch_is_not_tied_to_worker_manifest_capabilities(self):
         job = self.start_file()
         self.worker.rendered(job)
         self.queue.tick()
