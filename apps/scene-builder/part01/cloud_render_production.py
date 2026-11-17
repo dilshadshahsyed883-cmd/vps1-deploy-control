@@ -239,7 +239,22 @@ class Worker:
                 if code in (401, 403, 408, 409, 425, 429) or code >= 500:
                     raise WorkerWait(f"Worker unavailable or busy (HTTP {code}).")
                 if not 200 <= code < 300:
-                    raise JobError(f"Worker rejected the request (HTTP {code}).")
+                    # Relay bounded worker errors without interpreting render features.
+                    # Do not read an unbounded error body (including on stream requests).
+                    detail = ""
+                    try:
+                        body = bytearray()
+                        for chunk in response.iter_content(4096):
+                            body.extend(chunk)
+                            if len(body) > 4096:
+                                break
+                        payload = json.loads(body) if len(body) <= 4096 else None
+                        if isinstance(payload, dict) and isinstance(payload.get("error"), str):
+                            detail = " ".join(payload["error"].split())[:240]
+                    except (ValueError, requests.RequestException):
+                        pass
+                    suffix = ": " + detail if detail else "."
+                    raise JobError(f"Worker rejected the request (HTTP {code}){suffix}")
                 payload = response.json()
                 if not isinstance(payload, dict):
                     raise JobError("Worker returned an invalid API response.")
@@ -571,7 +586,7 @@ class ProductionQueue:
         if row["cancel_requested"]:
             self.update(job, state="Cancelled")
             return
-        if state == "failed":
+        if state in ("failed", "waiting_for_gpu"):
             error = str(status.get("error") or "GPU render failed. Check the Salad worker logs.")
             self.update(job, state="Failed", error=error[:350], rerender=1)
         elif state in ("rendered", "delivery_failed"):
