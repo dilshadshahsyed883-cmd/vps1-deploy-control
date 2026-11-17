@@ -242,19 +242,26 @@ class ProductionTest(unittest.TestCase):
         self.queue.tick()
         self.assertEqual(self.state(), "Rendering")
 
-    def test_compatibility_error_prevents_any_gpu_zip_upload(self):
+    def test_vps_is_a_transport_and_does_not_validate_render_features(self):
+        # Only Concat's worker owns manifest feature compatibility.  The VPS
+        # must not call /api/validate, nor reject a worker capability field.
         self.worker.valid = False
-        self.start_file()
-        self.assertEqual(self.state(), "Failed")
-        self.assertIn("Unsupported effect", self.row()["error"])
-        self.assertFalse(self.worker.sessions)
+        job = self.start_file()
+        self.assertEqual(self.state(), "Rendering")
+        self.assertNotIn(("GET", "/api/capabilities"), self.worker.requests)
+        self.assertNotIn(("POST", "/api/validate"), self.worker.requests)
+        self.assertIn(job, self.worker.sessions)
+        self.worker.rendered(job)
+        self.queue.tick()
+        self.assertEqual(self.state(), "Completed")
 
-    def test_existing_worker_without_advertised_manifest_limit_can_render(self):
+    def test_worker_without_advertised_manifest_limit_can_render(self):
         self.worker.manifest_limit = None
         job = self.start_file()
         self.worker.rendered(job)
         self.queue.tick()
         self.assertEqual(self.state(), "Completed")
+        self.assertNotIn(("GET", "/api/capabilities"), self.worker.requests)
 
     def test_pause_and_resume_survive_restart_and_cancel_queued_job(self):
         self.queue.scan(FOLDER)
