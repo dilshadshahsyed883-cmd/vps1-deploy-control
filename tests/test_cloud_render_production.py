@@ -466,7 +466,8 @@ class WorkerTransportErrorTests(unittest.TestCase):
 
     def test_invalid_or_oversized_error_body_keeps_generic_transport_error(self):
         worker = Worker("https://fixture.salad.cloud", "token", "", "/health/ready", 15)
-        for body in (b"<html>not JSON</html>", b"x" * 4097, b'{"error": ["not a string"]}'):
+        for body in (b"<html>not JSON</html>", b"x" * 4097,
+                     b'{"error": ["not a string"]}', b"[" * 1500 + b"]" * 1500):
             with self.subTest(body_length=len(body)):
                 response = Mock(status_code=422)
                 response.__enter__ = Mock(return_value=response)

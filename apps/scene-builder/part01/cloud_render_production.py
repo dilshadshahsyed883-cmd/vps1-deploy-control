@@ -251,7 +251,7 @@ class Worker:
                         payload = json.loads(body) if len(body) <= 4096 else None
                         if isinstance(payload, dict) and isinstance(payload.get("error"), str):
                             detail = " ".join(payload["error"].split())[:240]
-                    except (ValueError, requests.RequestException):
+                    except (ValueError, RecursionError, requests.RequestException):
                         pass
                     suffix = ": " + detail if detail else "."
                     raise JobError(f"Worker rejected the request (HTTP {code}){suffix}")
