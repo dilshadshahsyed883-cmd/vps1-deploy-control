@@ -22,7 +22,6 @@ from fastapi import HTTPException
 LOG = logging.getLogger(__name__)
 MAX_ZIP = 4 * 1024 ** 3  # Concat GPU resumable upload limit
 MAX_MANIFEST = 64 * 1024 ** 2
-LEGACY_MANIFEST_LIMIT = 2 * 1024 ** 2
 MODE = "cuda-hybrid-v1"
 CHUNK = 8 * 1024 ** 2
 DRIVE_ID = re.compile(r"[A-Za-z0-9_-]{1,200}")
@@ -263,24 +262,11 @@ class Worker:
         if response.get("concurrency") != value:
             raise WorkerWait("Worker did not confirm the requested render concurrency.")
 
-    def upload(self, job, path, size, digest, manifest, checkpoint, uploading, submit):
+    def upload(self, job, path, size, digest, checkpoint, uploading, submit):
+        # Transport-only VPS bridge. Concat EXE and Salad worker own the
+        # render contract and media/effects validation; do not duplicate it here.
         checkpoint()
         self.request("GET", self.health)
-        caps = self.request("GET", "/api/capabilities")
-        # Earlier compatible CUDA workers validate manifests but do not
-        # advertise their fixed 2 MiB validation limit.
-        limit = caps.get("max_project_manifest_bytes", LEGACY_MANIFEST_LIMIT)
-        if (caps.get("api_version") != 1 or caps.get("validation_version") != 1
-                or 1 not in (caps.get("bundle_versions") or [])
-                or MODE not in (caps.get("render_modes") or []) or type(limit) is not int or limit <= 0):
-            raise JobError("Configured worker lacks the Concat CUDA hybrid upload and validation API.")
-        if len(manifest) > limit:
-            raise JobError(f"Project JSON exceeds this worker's {limit:,}-byte validation limit.")
-        validation = self.request("POST", "/api/validate", data=manifest,
-                                  headers={"Content-Type": "application/json"})
-        if validation.get("ok") is not True:
-            details = validation.get("errors") or ["Project is not CUDA compatible."]
-            raise JobError(f"GPU compatibility check failed. {str(details[0])[:300]}")
         checkpoint()
         uploading()
         root = "/api/uploads/" + job
@@ -556,10 +542,10 @@ class ProductionQueue:
                 with part.open("rb") as stream:
                     if hashlib.file_digest(stream, "md5").hexdigest() != row["drive_md5"]:
                         raise JobError("Drive ZIP content changed after the scan. Delete the job and scan again.")
-            manifest = bundle_manifest(part)
+            bundle_manifest(part)  # Keep secure ZIP structure/path/size checks.
             os.replace(part, path)
         else:
-            manifest = bundle_manifest(path)
+            bundle_manifest(path)
         digest = row["digest"]
         if not digest:
             with path.open("rb") as stream:
@@ -570,7 +556,7 @@ class ProductionQueue:
         if same:
             raise JobError("An identical Concat ZIP is already in Production.")
         self.update(job, state="Waiting for Worker", digest=digest)
-        worker.upload(remote_id, path, path.stat().st_size, digest, manifest,
+        worker.upload(remote_id, path, path.stat().st_size, digest,
                       lambda: self.checkpoint(job),
                       lambda: self.update(job, state="Uploading to GPU", endpoint=worker.endpoint),
                       lambda: self.checkpoint(job, submit=True))
