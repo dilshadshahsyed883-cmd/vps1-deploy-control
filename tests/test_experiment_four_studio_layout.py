@@ -31,7 +31,7 @@ class ExperimentFourStudioLayoutTests(unittest.TestCase):
         return self.env.get_template("base.html").render(
             page=page,
             request=SimpleNamespace(
-                session={"is_admin": admin, "studio_access": (), "app_access": "all"},
+                session={"is_admin": admin, "username": "owner", "studio_access": (), "app_access": "all"},
                 query_params={},
             ),
             username="owner",
@@ -43,9 +43,16 @@ class ExperimentFourStudioLayoutTests(unittest.TestCase):
                 html = self.render(page)
                 self.assertIn('class="vps1-experiment-four-main ', html)
                 self.assertIn('/static/experiment_four_studio_layout.css?v=20261116-1', html)
-                self.assertEqual(html.count('aria-label="Experiment Studio"'), 1)
-                self.assertIn('href="/' + route + '/"', html)
-                self.assertRegex(html, r'<nav class="vps1-experiment-tabs"')
+                if page == "cloud_render":
+                    self.assertEqual(html.count('aria-label="Experiment Studio"'), 0)
+                    self.assertEqual(html.count('aria-label="Concat Studio"'), 1)
+                    self.assertIn('href="/concat-studio/concat/"', html)
+                    self.assertIn('href="/concat-studio/concat-uploader/"', html)
+                    self.assertRegex(html, r'<nav class="vps1-experiment-tabs vps1-concat-studio-tabs"')
+                else:
+                    self.assertEqual(html.count('aria-label="Experiment Studio"'), 1)
+                    self.assertIn('href="/' + route + '/"', html)
+                    self.assertRegex(html, r'<nav class="vps1-experiment-tabs"')
                 self.assertIn(label, html)
 
     def test_upload_studio_uses_unchanged_native_layout(self):
