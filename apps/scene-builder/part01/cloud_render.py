@@ -232,7 +232,7 @@ class CloudRender:
             if "auto_upload" in obj:
                 if type(obj["auto_upload"]) is not bool:
                     raise HTTPException(400, "auto_upload must be boolean")
-                self.put(con, "auto_upload", int(obj["auto_upload"], owner))
+                self.put(con, "auto_upload", int(obj["auto_upload"]), owner)
             if "endpoint" in obj:
                 endpoint = endpoint_url(obj["endpoint"])
                 # Re-saving an unchanged endpoint (e.g. only concurrency
@@ -245,7 +245,7 @@ class CloudRender:
                     raise HTTPException(400, "Unsupported priority")
                 self.put(con, "priority", obj["priority"], owner)
             if "health_path" in obj:
-                self.put(con, "health_path", worker_path(obj["health_path"], owner))
+                self.put(con, "health_path", worker_path(obj["health_path"]), owner)
             if "timeout" in obj:
                 try: timeout = int(obj["timeout"])
                 except (TypeError, ValueError): raise HTTPException(400, "Invalid timeout") from None
@@ -257,7 +257,7 @@ class CloudRender:
                     value = str(obj[k])
                     if len(value) > 1024 or "\n" in value or "\r" in value:
                         raise HTTPException(400, "Invalid key")
-                    self.put(con, k, value)
+                    self.put(con, k, value, owner)
         if "concurrency" in obj:
             self.production.wake.set()
             return {**self.config(owner), "concurrency_sync": "owner_setting"}
