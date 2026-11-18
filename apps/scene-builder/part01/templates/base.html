@@ -250,7 +250,10 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
     sidebar.classList.contains('mobile-open') ? closeMenu() : openMenu();
   });
   overlay.addEventListener('click', closeMenu);
-  sidebar.querySelectorAll('nav a').forEach(link => link.addEventListener('click', closeMenu));
+  // Delegate to the sidebar: shared navigation can rebuild its links after load.
+  sidebar.addEventListener('click', event => {
+    if (event.target.closest('nav a')) closeMenu();
+  });
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') closeMenu();
   });
@@ -278,11 +281,12 @@ body, .acs-shell { background-color: var(--sb-bg) !important; color: var(--sb-te
   };
   window.addEventListener('pageshow',hardClose);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!sidebar.classList.contains('mobile-open'))hardClose();});
-  sidebar.querySelectorAll('nav a').forEach(a=>a.addEventListener('click',()=>{
+  sidebar.addEventListener('click',event=>{
+    if(!event.target.closest('nav a'))return;
     body.classList.remove('mobile-nav-open');
     overlay.classList.remove('visible');
     overlay.hidden=true;
-  },{capture:true}));
+  },{capture:true});
 })();
 </script>
 </body></html>
