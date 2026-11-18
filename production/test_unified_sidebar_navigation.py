@@ -36,6 +36,15 @@ class UniversalSidebarContracts(unittest.TestCase):
                 self.assertEqual(html.count(style_version), 1)
                 self.assertIn('id="app-sidebar" class="sidebar"', html)
 
+    def test_rebuilt_mobile_sidebar_links_close_the_drawer(self):
+        # Shared navigation replaces legacy links after the original inline
+        # script runs. Direct per-link listeners are lost; delegation survives.
+        html = (SCENE / "templates/base.html").read_text(encoding="utf-8")
+        self.assertIn("sidebar.addEventListener('click', event => {", html)
+        self.assertIn("if (event.target.closest('nav a')) closeMenu();", html)
+        self.assertIn("sidebar.addEventListener('click',event=>{", html)
+        self.assertNotIn("sidebar.querySelectorAll('nav a').forEach", html)
+
     def test_existing_native_apps_use_the_same_shared_script(self):
         for path in NATIVE_PAGES:
             with self.subTest(path=path):
