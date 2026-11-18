@@ -31,6 +31,8 @@ else:
 # Concat must be a distinct trusted process, never a mode alias sharing LUM
 # or Copyright's secrets, SQLite queue, OAuth vault, or session cookies.
 if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+    if WEB_HOST != "127.0.0.1":
+        raise RuntimeError("Concat Uploader must bind only to trusted loopback ingress")
     forbidden = {
         Path("/var/lib/local-upload-manager"),
         Path("/var/lib/lum-copyright"),

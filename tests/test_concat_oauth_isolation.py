@@ -73,6 +73,7 @@ print("PASS Concat OAuth shared client and owner-private token mapping")
                 env.pop(key, None)
             env.update({
                 "LUM_ENGINE_INSTANCE": "concat",
+                "LUM_HOST": "127.0.0.1",
                 "LUM_DATA_DIR": str(data),
                 "LUM_BASE_PATH": "/concat-studio/concat-uploader",
                 "LUM_SESSION_SECRET": "synthetic-unit-only",

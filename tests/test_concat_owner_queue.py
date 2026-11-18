@@ -119,6 +119,7 @@ print("PASS Concat owner queue, persisted pause, dedup, admin parity")
             env = os.environ.copy()
             env.update({
                 "LUM_ENGINE_INSTANCE": "concat",
+                "LUM_HOST": "127.0.0.1",
                 "LUM_DATA_DIR": str(path),
                 "LUM_BASE_PATH": "/concat-studio/concat-uploader",
                 "LUM_SUITE_AUTH": "1",
@@ -135,6 +136,7 @@ print("PASS Concat owner queue, persisted pause, dedup, admin parity")
             base = Path(root)
             common = {
                 "LUM_ENGINE_INSTANCE": "concat",
+                "LUM_HOST": "127.0.0.1",
                 "LUM_DATA_DIR": str(base / "concat-only"),
                 "LUM_BASE_PATH": "/concat-studio/concat-uploader",
                 "LUM_SUITE_AUTH": "1",

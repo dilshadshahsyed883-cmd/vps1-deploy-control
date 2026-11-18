@@ -104,6 +104,7 @@ print("PASS Concat four tabs, two subtabs, auth, owner isolation, safe queue adm
             env = os.environ.copy()
             env.update({
                 "LUM_ENGINE_INSTANCE": "concat",
+                "LUM_HOST": "127.0.0.1",
                 "LUM_BASE_PATH": "/concat-studio/concat-uploader",
                 "LUM_DATA_DIR": str(Path(root) / "concat"),
                 "LUM_GOOGLE_OAUTH_ROOT": str(Path(root) / "concat/secure"),

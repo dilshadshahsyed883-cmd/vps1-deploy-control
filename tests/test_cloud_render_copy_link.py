@@ -101,7 +101,7 @@ class CloudRenderCopyLinkTests(unittest.TestCase):
         js = (SCENE / "static/cloud_render.js").read_text(encoding="utf-8")
         html = (SCENE / "templates/cloud_render.html").read_text(encoding="utf-8")
         self.assertIn('button("Copy Link",()=>copyMediaLink(file.id))', js)
-        self.assertIn('if(["ready","failed","queued"].includes(file.state))', js)
+        self.assertIn('if(["ready","failed","queued","verified","delivered"].includes(file.state))', js)
         self.assertIn('new URL("/api/cloud-render/media/" + encodeURIComponent(id) + "/file", window.location.origin)', js)
         self.assertIn("await navigator.clipboard.writeText(url)", js)
         self.assertIn("Copy Link for Concat Uploader", html)

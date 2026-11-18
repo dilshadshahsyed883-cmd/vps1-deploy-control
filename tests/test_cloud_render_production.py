@@ -356,7 +356,7 @@ class ProductionTest(unittest.TestCase):
         self.media.receive(job, 0, MP4[:12], name=job+".mp4", size=len(MP4), sha=sha)
         done = self.media.receive(job, 1, MP4[12:], name=job+".mp4", size=len(MP4), sha=sha)
         self.assertEqual(done["state"], "ready")
-        self.media.delete(job)
+        self.media.delete(job, "alice")
         self.assertEqual(self.media.receive(job, 0, MP4, name=job+".mp4", size=len(MP4), sha=sha)["state"], "ready")
         self.reopen()
         self.queue.tick()
