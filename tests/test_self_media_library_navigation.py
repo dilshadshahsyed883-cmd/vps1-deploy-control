@@ -56,11 +56,11 @@ class ExperimentNavigation(unittest.TestCase):
         script=(SCENE/"static/vps1_native_site_shell.js").read_text()
         self.assertIn('app === "library" ? "library"',script)
         self.assertIn('["acs", "uploader", "stream", "library"].includes(app)',script)
-        # Routes still exist; only their menu entries are hidden.
-        for label in ("Self Media Library", "Auto Script", "Video Studio"):
-            self.assertNotIn(f'["{label}",', script)
-        for label in ("Antidetect Browser", "Upload Studio", "Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
-            self.assertIn(f'["{label}",', script)
+        # Routes still exist; only Concat is listed in the Experiment menu.
+        nav = script.split("const EXPERIMENT_NAV = Object.freeze([", 1)[1].split("]);", 1)[0]
+        self.assertIn('["Concat",', nav)
+        for label in ("Self Media Library", "Auto Script", "Video Studio", "Antidetect Browser", "Upload Studio", "HeyGen Studio", "Voice Clone", "Imagen"):
+            self.assertNotIn(f'["{label}",', nav)
         css=(SCENE/"static/vps1_native_site_shell.css").read_text()
         for selector in (".vps1-native-experiment-tabs","body.vps1-native-library .app-shell",
                          "body.vps1-native-library .sml-control-rail"):
