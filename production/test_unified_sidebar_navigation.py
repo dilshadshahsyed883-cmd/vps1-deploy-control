@@ -68,12 +68,14 @@ class UniversalSidebarContracts(unittest.TestCase):
         template = (SCENE / "templates/base.html").read_text(encoding="utf-8")
         self.assertIn('href="/experiment-studio/"', template)
         self.assertIn('aria-label="Experiment Studio"', template)
-        self.assertIn('href="/experiment-studio/antidetect-browser/"', template)
+        rail = template.split('class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
+        self.assertIn('href="/cloud-render/">Concat</a>', rail)
+        self.assertEqual(rail.count("<a "), 1)
         # Hidden nav entries do not disable direct routes.
         self.assertNotIn('href="/experiment-studio/self-media-library/"', template)
         self.assertNotIn('href="/experiment-studio/auto-script/"', template)
         self.assertNotIn('href="/scene-builder/">Video Studio</a>', template)
-        self.assertIn('href="/local-upload-manager/app?embedded=1&amp;tab=dashboard"', template)
+        self.assertNotIn('href="/local-upload-manager/app?embedded=1&amp;tab=dashboard"', rail)
         self.assertIn('href="/cloud-render/"', template)
         self.assertIn("page in ['experiment_studio','auto_script','local_upload_manager'", template)
         self.assertEqual(template.count('aria-label="Experiment Studio"'), 1)
@@ -81,6 +83,7 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('@app.get("/experiment-studio/self-media-library/")', routes)
         self.assertIn('return RedirectResponse("/self-media-library/", status_code=303)', routes)
         self.assertIn('@app.get("/experiment-studio/")', routes)
+        self.assertIn('return RedirectResponse("/cloud-render/", status_code=303)', routes)
         self.assertIn('@app.get("/experiment-studio/antidetect-browser/"', routes)
         self.assertIn('@app.get("/experiment-studio/auto-script/")', routes)
         self.assertIn('return RedirectResponse("/auto-script", status_code=303)', routes)
@@ -133,9 +136,8 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertIn('experiment-studio|self-media-library', source)
         self.assertIn('["acs", "uploader", "stream", "library"].includes(app)', source)
         visible_nav = source.split("const EXPERIMENT_NAV =", 1)[1].split("]);", 1)[0]
-        for label in ("Antidetect Browser", "Upload Studio", "Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
-            self.assertIn(f'["{label}",', visible_nav)
-        for label in ("Auto Script", "Self Media Library", "Video Studio"):
+        self.assertIn('["Concat", "/cloud-render/", "cloud-render"]', visible_nav)
+        for label in ("Antidetect Browser", "Upload Studio", "HeyGen Studio", "Voice Clone", "Imagen", "Auto Script", "Self Media Library", "Video Studio"):
             self.assertNotIn(f'["{label}",', visible_nav)
         self.assertIn("const createExperimentTabs =", source)
         self.assertIn("attachInnerTabs(tabs)", source)
