@@ -26,9 +26,13 @@ from tempfile import TemporaryDirectory
 api = types.ModuleType("googleapiclient")
 errors = types.ModuleType("googleapiclient.errors")
 errors.HttpError = type("HttpError", (Exception,), {})
+http = types.ModuleType("googleapiclient.http")
+http.MediaFileUpload = lambda *args, **kwargs: object()
 api.errors = errors
+api.http = http
 sys.modules["googleapiclient"] = api
 sys.modules["googleapiclient.errors"] = errors
+sys.modules["googleapiclient.http"] = http
 
 from desktop_core.modules.upload_pipeline.stages.media import MediaUploadStage
 
