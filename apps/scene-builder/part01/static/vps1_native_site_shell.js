@@ -284,7 +284,7 @@
     const navigation = node("nav");
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
-    const current = /^\/(concat-studio|cloud-render)(\/|$)/.test(window.location.pathname || "") || app === "concat-uploader" ? "concat" :
+    const current = /^\/(concat-studio|cloud-render)(\/|$)/.test(window.location?.pathname || "") || app === "concat-uploader" ? "concat" :
       app === "copyright-uploader" ? "copyright" : app === "short-uploader" ? "short" : (app === "song" || app === "song-uploader") ? "song" :
       (app === "voice" && (window.location?.hash === "#vs-audio" ||
         /^\/audio-downloader\/?$/.test(window.location?.pathname || ""))) ? "song" : app === "voice" ? "voice" : "experiment";
@@ -370,7 +370,7 @@
       toggle.after(experimentTabs);
     }
     if (current === "concat") {
-      concatTabs = createConcatTabs(false, concatSection(window.location.pathname || ""));
+      concatTabs = createConcatTabs(false, concatSection(window.location?.pathname || ""));
       concatTabs.hidden = true;
       toggle.after(concatTabs);
     }
