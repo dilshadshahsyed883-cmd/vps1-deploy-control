@@ -60,7 +60,11 @@ class SharedShellMobile(unittest.TestCase):
         self.assertIn('app === "library" ? "library"',js)
         self.assertIn('"Experiment Studio", "/experiment-studio/"',js)
         self.assertNotIn('["Self Media Library", "/self-media-library/", "library"]',js)
-        self.assertIn('["Upload Studio",',js)
+        # Upload Studio route survives, but the Experiment tab rail is Concat-only.
+        nav=js.split("const EXPERIMENT_NAV = Object.freeze([",1)[1].split("]);",1)[0]
+        self.assertIn('["Concat", "/cloud-render/", "cloud-render"]',nav)
+        self.assertNotIn('["Upload Studio",',nav)
+        self.assertIn("/local-upload-manager/app?embedded=1&tab=dashboard",js)
         self.assertIn('--vps1-sidebar-width:214px',scene)
         source=(SML/"static/index.html").read_text()
         self.assertNotIn('<aside class="sidebar">',source)
