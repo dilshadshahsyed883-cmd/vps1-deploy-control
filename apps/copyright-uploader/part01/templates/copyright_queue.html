@@ -30,7 +30,7 @@
       <td>{{ p.group_name or '—' }}</td>
       <td>{{ ch.name }}</td>
       <td><span class="lum-state s-{{ p.status|lower }}">{{ p.status|replace('_',' ')|title }}</span><div class="lum-progress" role="progressbar" aria-label="Upload progress for project {{ p.id }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ p.progress or 0 }}"><i style="width:{{ p.progress or 0 }}%"></i></div><small>{{ p.progress or 0 }}%</small></td>
-      <td>{{ p.app_upload_at|schedule_pkt }}</td>
+      <td>{{ (p.publish_at if engine_instance == 'concat' else p.app_upload_at)|schedule_pkt }}</td>
       <td>{% if p.error_message %}<details class="copyright-error"><summary>View message</summary><p>{{ p.error_message }}</p></details>{% elif p.status == 'COMPLETED' %}Upload verified{% if p.cleanup_verified_at %} · VPS cleanup recorded{% else %} · Cleanup not confirmed{% endif %}{% else %}{{ p.core_status or '—' }}{% endif %}</td>
       <td><div class="lum-actions">
         {% if p.youtube_url %}<a class="lum-button tiny" href="{{ p.youtube_url }}" target="_blank" rel="noopener">YouTube</a>{% endif %}
