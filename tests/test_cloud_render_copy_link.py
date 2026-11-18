@@ -40,8 +40,9 @@ class CloudRenderCopyLinkTests(unittest.TestCase):
         @app.get("/_test/session/{role}")
         def session(request: Request, role: str):
             request.session.clear()
-            if role in ("admin", "member"):
-                request.session.update({"authenticated": True, "is_admin": role == "admin"})
+            if role in ("admin", "member", "bob"):
+                request.session.update({"authenticated": True, "username": role,
+                                        "is_admin": role == "admin"})
             return {"role": role}
 
         app.add_middleware(SessionMiddleware, secret_key="copy-link-fixture")
@@ -49,7 +50,15 @@ class CloudRenderCopyLinkTests(unittest.TestCase):
         self.addCleanup(self.client.close)
         self.addCleanup(self.manager.pool.shutdown, wait=True)
 
+    def admit(self, job, owner="admin"):
+        with self.manager.connection() as con:
+            con.execute("""INSERT INTO production_jobs
+                (remote_id,drive_id,name,resource_keys,drive_size,drive_md5,folder_id,drive_path,owner_username)
+                VALUES(?,?,?,?,?,?,?,?,?)""", (job, "drive-" + job, "concat.zip", "",
+                0, "", "", "", owner))
+
     def test_copy_link_uses_existing_authenticated_mp4_endpoint(self):
+        self.admit("media-123")
         self.manager.receive(
             "media-123", 0, MP4, name="Sample.mp4", size=len(MP4),
             sha=hashlib.sha256(MP4).hexdigest(),
@@ -58,7 +67,7 @@ class CloudRenderCopyLinkTests(unittest.TestCase):
         self.client.get("/_test/session/guest")
         self.assertIn(self.client.get(path).status_code, (401, 403))
         self.client.get("/_test/session/member")
-        self.assertIn(self.client.get(path).status_code, (401, 403))
+        self.assertEqual(self.client.get(path).status_code, 404)
         self.client.get("/_test/session/admin")
         response = self.client.get(path)
         self.assertEqual(response.status_code, 200)
@@ -66,9 +75,12 @@ class CloudRenderCopyLinkTests(unittest.TestCase):
         self.assertEqual(response.headers["content-type"], "video/mp4")
         self.assertIn("no-store", response.headers["cache-control"])
         self.assertEqual(self.client.get(path + "?download=1").status_code, 200)
+        self.client.get("/_test/session/bob")
+        self.assertEqual(self.client.get(path).status_code, 404)
         self.assertEqual(self.client.get("/api/cloud-render/media/../file").status_code, 404)
 
     def test_copied_vps_link_unavailable_after_drive_delivery(self):
+        self.admit("media-456")
         self.manager.receive(
             "media-456", 0, MP4, name="Delivered.mp4", size=len(MP4),
             sha=hashlib.sha256(MP4).hexdigest(),
@@ -83,7 +95,7 @@ class CloudRenderCopyLinkTests(unittest.TestCase):
         self.assertEqual(
             self.client.get("/api/cloud-render/media/media-456/file").status_code, 404
         )
-        self.assertEqual(self.manager.listing()["items"][0]["state"], "delivered")
+        self.assertEqual(self.manager.listing("admin")["items"][0]["state"], "delivered")
 
     def test_button_only_for_states_supported_by_file_route(self):
         js = (SCENE / "static/cloud_render.js").read_text(encoding="utf-8")
