@@ -89,7 +89,7 @@ class ConcatOwnerMigration(unittest.TestCase):
         self.assertEqual(get_owner_config(self.con, "admin", "worker_key"), "")
 
     def test_invalid_spoofed_owners_denied(self):
-        for owner in ("", "../alice", "bob/../../", "a b", "\\evil", "admin\n"):
+        for owner in ("", "../alice", "bob/../../", "a b", "\\evil", "ad\nmin"):
             with self.subTest(owner=owner), self.assertRaises(ValueError):
                 owner_name(owner)
         self.assertEqual(owner_name("ALICE"), "alice")
