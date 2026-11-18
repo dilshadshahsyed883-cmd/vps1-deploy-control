@@ -112,7 +112,7 @@ class ProductionTest(unittest.TestCase):
         self.media = CloudRender(self.temp.name)
         self.addCleanup(self.media.pool.shutdown, wait=True)
         self.queue = self.media.production
-        self.queue.worker_factory = lambda _: self.worker
+        self.queue.worker_factory = lambda _, owner: self.worker
         self.queue.drive.execute = self.execute
 
     def execute(self, cmd, timeout):
@@ -135,18 +135,18 @@ class ProductionTest(unittest.TestCase):
             return con.execute("SELECT * FROM production_jobs ORDER BY id").fetchall()[index]
 
     def state(self, index=0):
-        return self.queue.snapshot()["items"][index]["state"]
+        return self.queue.snapshot("alice")["items"][index]["state"]
 
     def start_file(self):
-        self.queue.scan(FILE)
-        self.queue.control("start")
+        self.queue.scan(FILE, "alice")
+        self.queue.control("start", "alice")
         self.queue.tick()
         return self.row()["remote_id"]
 
     def test_concurrency_two_dispatches_two_jobs_on_one_worker(self):
-        self.media.save({"concurrency": 2})
-        self.queue.scan(FOLDER)
-        self.queue.control("start")
+        self.media.save({"concurrency": 2}, "alice")
+        self.queue.scan(FOLDER, "alice")
+        self.queue.control("start", "alice")
         self.queue.tick()
         self.assertEqual(self.state(0), "Rendering")
         self.assertEqual(self.state(1), "Queued")
@@ -154,23 +154,23 @@ class ProductionTest(unittest.TestCase):
         self.assertEqual(self.state(1), "Rendering")
         self.assertEqual(len(self.worker.jobs), 2)
         self.assertEqual(self.worker.concurrency, 2)
-        self.assertEqual(self.queue.snapshot()["active"], 2)
-        self.assertEqual(self.queue.snapshot()["concurrency"], 2)
+        self.assertEqual(self.queue.snapshot("alice")["active"], 2)
+        self.assertEqual(self.queue.snapshot("alice")["concurrency"], 2)
 
     def test_lower_concurrency_does_not_cancel_active_jobs(self):
-        self.media.save({"concurrency": 2})
-        self.queue.scan(FOLDER)
-        self.queue.control("start")
+        self.media.save({"concurrency": 2}, "alice")
+        self.queue.scan(FOLDER, "alice")
+        self.queue.control("start", "alice")
         self.queue.tick()
         self.queue.tick()
-        self.media.save({"concurrency": 1})
-        self.assertEqual(self.queue.snapshot()["active"], 2)
+        self.media.save({"concurrency": 1}, "alice")
+        self.assertEqual(self.queue.snapshot("alice")["active"], 2)
         self.assertEqual(self.state(0), "Rendering")
         self.assertEqual(self.state(1), "Rendering")
         # The setting must persist across the web process restart.
         self.reopen()
-        self.assertEqual(self.media.config()["concurrency"], 1)
-        self.assertEqual(self.queue.snapshot()["active"], 2)
+        self.assertEqual(self.media.config("alice")["concurrency"], 1)
+        self.assertEqual(self.queue.snapshot("alice")["active"], 2)
         self.queue.tick()
         self.assertEqual(len(self.worker.jobs), 2)
         self.assertEqual(self.worker.concurrency, 1)
@@ -178,8 +178,8 @@ class ProductionTest(unittest.TestCase):
     def test_reject_invalid_concurrency(self):
         for value in (0, 3, True, "2", None, 1.5):
             with self.subTest(value=value), self.assertRaises(Exception):
-                self.media.save({"concurrency": value})
-        self.assertEqual(self.media.config()["concurrency"], 1)
+                self.media.save({"concurrency": value}, "alice")
+        self.assertEqual(self.media.config("alice")["concurrency"], 1)
 
     def test_links_require_google_origin_and_keep_resource_keys(self):
         self.assertEqual(drive_link(FOLDER), ("folder1", "folder-key", True))
@@ -192,11 +192,11 @@ class ProductionTest(unittest.TestCase):
                 drive_link(value)
 
     def test_folder_scans_shared_children_by_id_and_deduplicates_direct_link(self):
-        self.assertEqual(self.queue.scan(FOLDER), {"added": 2, "duplicates": 0})
+        self.assertEqual(self.queue.scan(FOLDER, "alice"), {"added": 2, "duplicates": 0})
         self.assertIn("--recursive", self.drive_calls[0])
         self.assertIn("folder-key", self.drive_calls[0])
-        self.assertEqual(self.queue.scan(FILE), {"added": 0, "duplicates": 1})
-        self.queue.control("start")
+        self.assertEqual(self.queue.scan(FILE, "alice"), {"added": 0, "duplicates": 1})
+        self.queue.control("start", "alice")
         self.queue.tick()
         self.assertIn("X-Goog-Drive-Resource-Keys: folder1/folder-key,project1/project-key", self.drive_calls[1])
         self.assertEqual(self.state(), "Rendering")
@@ -204,21 +204,21 @@ class ProductionTest(unittest.TestCase):
         self.assertEqual(len(self.worker.jobs), 1)
 
     def test_private_file_uses_canonical_account_and_public_file_uses_resource_key(self):
-        self.queue.scan("https://drive.google.com/file/d/project1/view")
-        self.queue.control("start")
+        self.queue.scan("https://drive.google.com/file/d/project1/view", "alice")
+        self.queue.control("start", "alice")
         self.queue.tick()
         self.assertNotIn("--header", self.drive_calls[0])
         self.assertEqual(self.row()["name"], "From another account.zip")
-        self.assertEqual(self.queue.scan("https://drive.google.com/file/d/project2/view?resourcekey=public-key")["added"], 1)
-        self.queue.action(self.row()["id"], "cancel")
+        self.assertEqual(self.queue.scan("https://drive.google.com/file/d/project2/view?resourcekey=public-key", "alice")["added"], 1)
+        self.queue.action(self.row()["id"], "cancel", "alice")
         self.worker.rendered(self.row()["remote_id"])
         self.queue.tick()
         self.queue.tick()
         self.assertIn("X-Goog-Drive-Resource-Keys: project2/public-key", self.drive_calls[-1])
 
     def test_keyed_folder_fallback_verifies_the_scanned_file_hash(self):
-        self.queue.scan(FOLDER)
-        self.queue.control("start")
+        self.queue.scan(FOLDER, "alice")
+        self.queue.control("start", "alice")
         def fallback(cmd, timeout):
             if cmd[1] == "backend":
                 raise RcloneFailure("backend", 4, "remote_file_absent")
@@ -238,7 +238,7 @@ class ProductionTest(unittest.TestCase):
         self.assertTrue(self.queue.archive(self.row()["id"]).with_suffix(".part").is_file())
         self.assertFalse(self.worker.jobs)
         self.files["project1"] = project_zip("fixed")
-        self.queue.action(self.row()["id"], "retry")
+        self.queue.action(self.row()["id"], "retry", "alice")
         self.queue.tick()
         self.assertEqual(self.state(), "Rendering")
 
@@ -257,18 +257,18 @@ class ProductionTest(unittest.TestCase):
         self.assertEqual(self.state(), "Completed")
 
     def test_pause_and_resume_survive_restart_and_cancel_queued_job(self):
-        self.queue.scan(FOLDER)
-        self.queue.control("start")
-        self.queue.control("pause")
+        self.queue.scan(FOLDER, "alice")
+        self.queue.control("start", "alice")
+        self.queue.control("pause", "alice")
         self.reopen()
         self.queue.tick()
         self.assertEqual(self.state(), "Queued")
-        self.assertEqual(self.queue.snapshot()["state"], "paused")
+        self.assertEqual(self.queue.snapshot("alice")["state"], "paused")
         first = self.row()["id"]
-        self.queue.action(first, "cancel")
+        self.queue.action(first, "cancel", "alice")
         self.assertEqual(self.state(), "Cancelled")
-        self.queue.action(first, "delete")
-        self.queue.control("resume")
+        self.queue.action(first, "delete", "alice")
+        self.queue.control("resume", "alice")
         self.queue.tick()
         self.assertEqual(self.state(), "Rendering")
         self.assertEqual(self.row()["drive_id"], "project2")
@@ -298,7 +298,7 @@ class ProductionTest(unittest.TestCase):
         self.queue.tick()
         self.assertEqual(self.state(), "Completed")
         self.assertEqual(self.media.local(job).read_bytes(), MP4)
-        self.assertEqual(self.media.listing()["items"][0]["name"], "From another account.mp4")
+        self.assertEqual(self.media.listing("alice")["items"][0]["name"], "From another account.mp4")
         self.assertFalse(self.queue.archive(self.row()["id"]).exists())
 
     def test_bad_output_retains_input_and_retry_uses_same_render(self):
@@ -308,9 +308,9 @@ class ProductionTest(unittest.TestCase):
         self.queue.tick()
         self.assertEqual(self.state(), "Failed")
         self.assertTrue(self.queue.archive(self.row()["id"]).is_file())
-        self.assertEqual(self.media.listing()["items"], [])
+        self.assertEqual(self.media.listing("alice")["items"], [])
         self.worker.output = MP4
-        self.queue.action(self.row()["id"], "retry")
+        self.queue.action(self.row()["id"], "retry", "alice")
         self.queue.tick()
         self.assertEqual(self.state(), "Completed")
         self.assertEqual(list(self.worker.jobs), [job])
@@ -320,25 +320,25 @@ class ProductionTest(unittest.TestCase):
         self.worker.jobs[job].update(state="failed", error="Renderer timed out")
         self.queue.tick()
         self.assertEqual(self.state(), "Failed")
-        self.queue.action(self.row()["id"], "retry")
+        self.queue.action(self.row()["id"], "retry", "alice")
         self.queue.tick()
         self.assertEqual(self.state(), "Rendering")
         self.assertNotEqual(self.row()["remote_id"], job)
         self.assertEqual(len(self.drive_calls), 1)
 
     def test_cancel_inflight_waits_for_worker_terminal_before_next_dispatch(self):
-        self.queue.scan(FOLDER)
-        self.queue.control("start")
+        self.queue.scan(FOLDER, "alice")
+        self.queue.control("start", "alice")
         self.queue.tick()
         job = self.row()["remote_id"]
-        self.queue.action(self.row()["id"], "cancel")
+        self.queue.action(self.row()["id"], "cancel", "alice")
         self.queue.tick()
         self.assertEqual(self.state(), "Rendering")
         self.assertEqual(self.state(1), "Queued")
         self.worker.rendered(job)
         self.queue.tick()
         self.assertEqual(self.state(), "Cancelled")
-        self.assertEqual(self.media.listing()["items"], [])
+        self.assertEqual(self.media.listing("alice")["items"], [])
         self.queue.tick()
         self.assertEqual(self.state(1), "Rendering")
 
@@ -353,7 +353,7 @@ class ProductionTest(unittest.TestCase):
         self.reopen()
         self.queue.tick()
         self.assertEqual(self.state(), "Completed")
-        self.assertEqual(self.media.listing()["items"], [])
+        self.assertEqual(self.media.listing("alice")["items"], [])
 
     def test_push_recovers_a_crash_after_final_file_rename(self):
         job = self.start_file()
@@ -368,10 +368,10 @@ class ProductionTest(unittest.TestCase):
 
     def test_verified_pull_uses_optional_drive_output_queue(self):
         job = self.start_file()
-        self.media.save({"auto_upload": True})
+        self.media.save({"auto_upload": True}, "alice")
         self.worker.rendered(job)
         self.media.pool.submit = Mock()
         self.queue.tick()
         self.assertEqual(self.state(), "Completed")
-        self.assertEqual(self.media.listing()["items"][0]["state"], "queued")
+        self.assertEqual(self.media.listing("alice")["items"][0]["state"], "queued")
         self.media.pool.submit.assert_called_once_with(self.media._upload, job)
