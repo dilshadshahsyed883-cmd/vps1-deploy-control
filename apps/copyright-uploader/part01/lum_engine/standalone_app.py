@@ -323,6 +323,8 @@ async def standalone_auth(request: Request, call_next):
         if not username:
             return RedirectResponse(SUITE_LOGIN_URL, status_code=303)
         if not is_admin and app_access not in ({"concat", "concat-studio", "all"} if os.getenv("LUM_ENGINE_INSTANCE") == "concat" else {"lum", "all"}):
+            if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+                return JSONResponse({"detail": "Concat Studio access required"}, status_code=403)
             raise HTTPException(403, "Local Upload Manager access required")
         mapped = users.get_by_username(username)
         user = {
