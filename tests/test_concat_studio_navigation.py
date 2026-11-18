@@ -67,20 +67,19 @@ class ConcatStudioNavigationTests(unittest.TestCase):
         self.assertEqual(landing(admin), ("/concat-studio/concat/", 303))
         with self.assertRaises(PermissionError):
             concat(guest)
-        with self.assertRaises(PermissionError):
-            concat(member)
+        self.assertEqual(concat(member), ("/cloud-render/", 303))
         self.assertEqual(concat(admin), ("/cloud-render/", 303))
 
     def test_legacy_cloud_endpoints_remain_registered(self):
         app = APP.read_text(encoding="utf-8")
         cloud = CLOUD.read_text(encoding="utf-8")
-        self.assertIn('request.url.path.rstrip("/") == "/cloud-render"', app)
-        self.assertIn('request.url.path.rstrip("/") == "/concat-studio/concat"', app)
-        self.assertIn('request.url.path.startswith("/api/cloud-render/")', app)
+        self.assertIn('("concat", ("/concat-studio", "/cloud-render", "/api/cloud-render"))', app)
+        self.assertIn('"concat-uploader": "concat"', app)
         self.assertIn('@app.get("/cloud-render/",response_class=HTMLResponse)', cloud)
         self.assertIn('@app.get("/api/cloud-render/media")', cloud)
         self.assertIn('@app.get("/api/cloud-render/config")', cloud)
-        self.assertIn('require_admin(req)', cloud)
+        self.assertIn('def owner(req):', cloud)
+        self.assertIn('owner(request)', cloud)
 
     def test_shared_navigation_has_exactly_two_concat_children(self):
         shell = SHELL.read_text(encoding="utf-8")
