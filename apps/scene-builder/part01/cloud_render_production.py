@@ -403,7 +403,7 @@ class ProductionQueue:
         with self.media.connection() as con:
             items = [dict(row) for row in con.execute(
                 "SELECT id,name,state,error,cancel_requested FROM production_jobs WHERE owner_username=? ORDER BY id", (owner,))]
-            concurrency = int(self.media.get(con, "render_concurrency") or "1")
+            concurrency = int(self.media.get(con, "render_concurrency", owner) or "1")
             active = sum(item["state"] not in TERMINAL and item["state"] != "Queued" for item in items)
             return {"state": queue_state(con, owner),
                     "concurrency": concurrency, "active": active, "items": items}
@@ -467,7 +467,7 @@ class ProductionQueue:
             # Nonterminal jobs occupy queue slots, including GPU rendering,
             # download, retry and output delivery. No VRAM/CPU checks.
             active = con.execute("""SELECT * FROM production_jobs
-                WHERE state NOT IN ('Completed','Failed','Cancelled','Queued')
+                WHERE owner_username<>'' AND state NOT IN ('Completed','Failed','Cancelled','Queued')
                 ORDER BY id""").fetchall()
             limit = int(self.media.get(con, "render_concurrency") or "1")
             row = None
