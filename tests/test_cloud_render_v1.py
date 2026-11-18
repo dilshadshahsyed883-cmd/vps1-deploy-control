@@ -25,11 +25,19 @@ class CloudRenderTests(unittest.TestCase):
         self.mgr.pool.shutdown(wait=True)
         self.temp.cleanup()
 
-    def receive(self, job="job-A"):
+    def admit(self, job, owner="alice"):
+        with self.mgr.connection() as con:
+            con.execute("""INSERT OR IGNORE INTO production_jobs
+                (remote_id,drive_id,name,resource_keys,drive_size,drive_md5,folder_id,drive_path,owner_username)
+                VALUES(?,?,?,?,?,?,?,?,?)""",
+                (job, "drive-" + job, "input.zip", "", 0, "", "", "", owner))
+
+    def receive(self, job="job-A", owner="alice"):
+        self.admit(job, owner)
         return self.mgr.receive(job, 0, MP4, name="Concat test.mp4", size=len(MP4), sha=self.sha)
 
     def test_image_defaults_and_auto_upload_off(self):
-        config=self.mgr.config()
+        config=self.mgr.config("alice")
         self.assertEqual(config["gpu"],"RTX 3060 Ti")
         self.assertEqual(config["vram_gb"],8)
         self.assertEqual(config["port"],8080)
@@ -41,22 +49,16 @@ class CloudRenderTests(unittest.TestCase):
         self.assertEqual(self.receive()["state"],"ready")
         self.assertTrue(self.mgr.local("job-A").exists())
 
-    def test_concurrency_change_preserves_connected_worker(self):
-        self.mgr.save({"endpoint": "https://fixture.salad.cloud"})
-        with self.mgr.connection() as con:
-            self.mgr.put(con, "enabled", "1")
-        with patch.object(self.mgr.production, "worker_factory") as factory:
-            factory.return_value.timeout = 15
-            result = self.mgr.save({
-                "endpoint": "https://fixture.salad.cloud",
-                "concurrency": 2
-            })
-        self.assertTrue(result["enabled"])
+    def test_concurrency_change_preserves_other_users_gpu_settings(self):
+        self.mgr.save({"endpoint": "https://fixture.salad.cloud"}, "alice")
+        self.mgr.save({"endpoint": "https://bob.salad.cloud"}, "bob")
+        result = self.mgr.save({"endpoint": "https://fixture.salad.cloud", "concurrency": 2}, "alice")
         self.assertEqual(result["concurrency"], 2)
-        self.assertEqual(result["concurrency_sync"], "applied")
-        factory.return_value.configure_concurrency.assert_called_once_with(2)
-        self.mgr.save({"endpoint": "https://different.salad.cloud"})
-        self.assertFalse(self.mgr.config()["enabled"])
+        self.assertEqual(result["concurrency_sync"], "owner_setting")
+        self.assertEqual(self.mgr.config("bob")["endpoint"], "https://bob.salad.cloud")
+        self.assertEqual(self.mgr.config("bob")["concurrency"], 1)
+        self.mgr.save({"endpoint": "https://different.salad.cloud"}, "alice")
+        self.assertEqual(self.mgr.config("bob")["endpoint"], "https://bob.salad.cloud")
 
     def test_receiver_token_rotates_and_denies_invalid(self):
         with self.assertRaises(HTTPException): self.mgr.token_required("")
@@ -67,6 +69,7 @@ class CloudRenderTests(unittest.TestCase):
         with self.assertRaises(HTTPException): self.mgr.token_required(token)
 
     def test_chunk_resume_is_idempotent_and_metadata_immutable(self):
+        self.admit("job-Z")
         part = self.mgr.receive("job-Z",0,MP4[:20],name="Concat test.mp4",size=len(MP4),sha=self.sha)
         self.assertEqual(part["next_chunk"],1)
         self.assertEqual(self.mgr.receive("job-Z",0,MP4[:20],name="Concat test.mp4",size=len(MP4),sha=self.sha)["next_chunk"],1)
@@ -80,6 +83,7 @@ class CloudRenderTests(unittest.TestCase):
         with self.assertRaises(HTTPException): endpoint_url("http://127.0.0.1:8080")
         with self.assertRaises(HTTPException): endpoint_url("https://salad.cloud.evil.com")
         data = b"a" * len(MP4)
+        self.admit("bad-mp4")
         with self.assertRaises(HTTPException):
             self.mgr.receive("bad-mp4",0,data,name="a.mp4",size=len(data),sha=hashlib.sha256(data).hexdigest())
 
@@ -87,42 +91,44 @@ class CloudRenderTests(unittest.TestCase):
         self.receive()
         self.assertTrue(self.mgr.local("job-A").exists())
         with patch.object(self.mgr.pool,"submit"):
-            self.mgr.queue("job-A")
+            self.mgr.queue("job-A", "alice")
         stat={"Size":len(MP4),"Hashes":{"MD5":self.md5}}
         with patch("cloud_render.shutil.which",return_value="/usr/bin/rclone"):
             with patch.object(self.mgr,"remote_stat",side_effect=[None,stat]):
                 with patch.object(self.mgr,"execute",side_effect=lambda cmd, timeout=1200: "gdrive:\n" if cmd[1] == "listremotes" else ""):
                     self.mgr._upload("job-A")
         self.assertFalse(self.mgr.local("job-A").exists())
-        self.assertEqual(self.mgr.listing()["items"][0]["state"],"delivered")
+        self.assertEqual(self.mgr.listing("alice")["items"][0]["state"],"delivered")
 
     def test_failed_remote_verification_preserves_original(self):
         self.receive()
         with patch.object(self.mgr.pool,"submit"):
-            self.mgr.queue("job-A")
+            self.mgr.queue("job-A", "alice")
         stat={"Size":len(MP4),"Hashes":{"MD5":"0"*32}}
         with patch("cloud_render.shutil.which",return_value="/usr/bin/rclone"):
             with patch.object(self.mgr,"remote_stat",side_effect=[None,stat]):
                 with patch.object(self.mgr,"execute",side_effect=lambda cmd, timeout=1200: "gdrive:\n" if cmd[1] == "listremotes" else ""):
                     self.mgr._upload("job-A")
         self.assertTrue(self.mgr.local("job-A").is_file())
-        self.assertEqual(self.mgr.listing()["items"][0]["state"],"failed")
+        self.assertEqual(self.mgr.listing("alice")["items"][0]["state"],"failed")
 
     def test_active_upload_cannot_be_renamed_or_deleted(self):
         self.receive()
         with patch.object(self.mgr.pool,"submit"):
-            self.mgr.queue("job-A")
-        with self.assertRaises(HTTPException): self.mgr.rename("job-A","other.mp4")
-        with self.assertRaises(HTTPException): self.mgr.delete("job-A")
+            self.mgr.queue("job-A", "alice")
+        with self.assertRaises(HTTPException): self.mgr.rename("job-A","other.mp4","alice")
+        with self.assertRaises(HTTPException): self.mgr.delete("job-A","alice")
         self.assertTrue(self.mgr.local("job-A").exists())
 
-    def test_auto_upload_only_new_jobs(self):
+    def test_auto_upload_only_new_owner_jobs(self):
         self.receive("old")
-        self.mgr.save({"auto_upload":True})
-        with patch.object(self.mgr,"queue") as q:
+        self.mgr.save({"auto_upload": True}, "alice")
+        with patch.object(self.mgr.pool, "submit") as queued:
             self.receive("new")
-        q.assert_called_once_with("new")
-        self.assertEqual({item["id"] for item in self.mgr.listing()["items"]}, {"old","new"})
+        queued.assert_called_once()
+        self.assertEqual(queued.call_args.args[1], "new")
+        self.assertEqual({item["id"] for item in self.mgr.listing("alice")["items"]}, {"old", "new"})
+        self.assertEqual(self.mgr.listing("bob")["items"], [])
 
     def test_candidate_policy_is_scoped(self):
         from precutover_policy import mutation_allowed
@@ -131,13 +137,14 @@ class CloudRenderTests(unittest.TestCase):
         self.assertFalse(mutation_allowed("POST","/api/cloud-render/ingest/a-123/bypass",False))
         self.assertFalse(mutation_allowed("DELETE","/api/cloud-render/config",False))
 
-    def test_scene_admin_gate_and_tabs_are_server_registered(self):
+    def test_scene_owner_gate_and_tabs_are_server_registered(self):
         app = (ROOT/"apps/scene-builder/part01/app.py").read_text()
+        cloud = (ROOT/"apps/scene-builder/part01/cloud_render.py").read_text()
         shell = (ROOT/"apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text()
         html = (ROOT/"apps/scene-builder/part01/templates/cloud_render.html").read_text()
-        self.assertIn('request.url.path.rstrip("/") == "/cloud-render"',app)
-        self.assertIn('not account.get("is_admin")',app)
-        self.assertIn('register_cloud_render(app, templates, DATA_DIR, require_admin, require_login)',app)
+        self.assertIn('("concat", ("/concat-studio", "/cloud-render", "/api/cloud-render"))',app)
+        self.assertIn('owner(request)',cloud)
+        self.assertIn("AND owner_username=?",cloud)
         self.assertIn('["Concat", "/concat-studio/concat/", "concat-render"]',shell)
         self.assertIn('["Concat Uploader", "/concat-studio/concat-uploader/", "concat-uploader"]',shell)
         self.assertEqual(html.count('data-tab="media"'),1)
