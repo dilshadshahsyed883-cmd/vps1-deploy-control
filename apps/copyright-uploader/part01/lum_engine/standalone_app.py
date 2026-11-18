@@ -1475,7 +1475,7 @@ def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
                                  channel_id: str=Form(...),channel_name: str=Form(...),
                                  google_account_email: str=Form("")):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright","concat"}:
         raise HTTPException(404,"Not found")
     try:
         cid=studio_tenants.create_channel(user["username"],channel_id,channel_name,
@@ -1489,7 +1489,7 @@ def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
 def studio_tenant_group_create(request: Request,csrf_token: str=Form(...),
                                group_name: str=Form(...),channel_ids: list[int]=Form([])):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
+    if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright","concat"}:
         raise HTTPException(404,"Not found")
     try:
         gid=studio_tenants.create_group(user["username"],group_name,channel_ids)
