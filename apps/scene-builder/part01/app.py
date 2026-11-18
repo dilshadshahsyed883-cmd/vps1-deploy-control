@@ -38,6 +38,7 @@ from director_v25 import preflight_v25, DirectorSpecError
 from director_v25_execution import compile_v25, bundle_exact_director_media
 from scene_media_source_policy import bundle_local_media
 from login_next import safe_login_target, login_redirect_url, browser_login_target
+import concat_sso_issuer as _concat_sso
 
 RUNTIME_CANDIDATE = os.getenv("VPS1_RUNTIME_CANDIDATE") == "1"
 SCENE_PRECUTOVER_EDITING = os.getenv("VPS1_SCENE_PRECUTOVER_EDITING", "0") == "1"
@@ -258,6 +259,7 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             )
         """)
+        _concat_sso.init_schema(conn)
         user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
         user_additions = {
             "daily_render_limit": "INTEGER NOT NULL DEFAULT 25",
@@ -784,6 +786,8 @@ async def authentication(request: Request, call_next):
         return RedirectResponse("/login", status_code=303)
     account = user_account(str(request.session.get("username") or ""))
     if not account or not int(account.get("is_active") or 0):
+        with db() as conn:
+            _concat_sso.revoke_session(conn, request.session)
         request.session.clear()
         return RedirectResponse(login_redirect_url(request.url.path, error="Account unavailable"), status_code=303)
     # Refresh role from SQLite on every request, including post-demotion sessions.
@@ -874,13 +878,20 @@ def login(request: Request, username: str = Form(...), secret_key: str = Form(..
     request.session["is_admin"] = bool(row["is_admin"])
     request.session["app_access"] = "all"
     request.session["studio_access"] = allowed_studios(user_account(str(row["username"])))
+    with db() as conn:
+        _concat_sso.start_session(conn, request.session, str(row["username"]))
     return RedirectResponse(safe_login_target(next), status_code=303)
 
 
 @app.post("/logout")
 def logout(request: Request):
+    with db() as conn:
+        _concat_sso.revoke_session(conn, request.session)
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
+
+
+_concat_sso.register_scene_sso_issuer(app, db, user_account, SESSION_SECRET, WEB_ACCESS_KEY)
 
 
 def worker_params(extra: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -4823,6 +4834,13 @@ def user_management_action(
                     message = f"User {clean} deleted"
                 else:
                     raise HTTPException(400, "Unknown action")
+                if action in {"disable", "delete"} and conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='concat_sso_sessions'"
+                ).fetchone():
+                    conn.execute(
+                        "UPDATE concat_sso_sessions SET revoked_at=CAST(strftime('%s','now') AS INTEGER) "
+                        "WHERE username_key=? AND revoked_at IS NULL", (clean.casefold(),)
+                    )
         audit_event("user_management", message, {"actor": actor, "target": clean, "action": action})
         return RedirectResponse(
             f"/user-management?message={requests.utils.quote(message)}", status_code=303
