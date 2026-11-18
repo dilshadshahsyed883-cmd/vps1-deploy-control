@@ -245,7 +245,7 @@ class ProjectStore:
             raise ValueError("Project owner is required")
         if values[13] <= 0:
             raise ValueError("Channel is required")
-        if values[-2] not in {"folder", "pc_upload", "drive_link", ""}:
+        if values[-2] not in {"folder", "pc_upload", "drive_link", "concat_link", ""}:
             raise ValueError("Invalid source origin")
         if values[-2] == "folder" and not str(data.get("source_file_name") or ""):
             raise ValueError("Folder video name is required")
@@ -260,6 +260,12 @@ class ProjectStore:
             except sqlite3.IntegrityError as exc:
                 raise ValueError("This video was already queued or uploaded to the selected channel") from exc
             project_id = int(cur.lastrowid)
+            # Concat is manual-start even if this owner started a previous batch.
+            # Set the pause gate in the SAME transaction as queue admission.
+            if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+                conn.execute("""INSERT INTO copyright_owner_queues(owner_username,paused)
+                    VALUES(?,1) ON CONFLICT(owner_username)
+                    DO UPDATE SET paused=1""", (values[0],))
             conn.execute("INSERT INTO project_events(project_id,level,message,created_at) VALUES(?,?,?,?)", (project_id,"INFO","Project accepted into VPS queue",stamp))
             return project_id
 
