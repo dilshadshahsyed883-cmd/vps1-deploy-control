@@ -117,7 +117,12 @@
       </select></label>
       <div class="copyright-field-pair">
       <label class="lum-field"><span>Visibility</span><select name="privacy_status"><option value="public">Public</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>
-      <label class="lum-field"><span>Schedule (PKT) — optional</span><input name="app_upload_at" type="datetime-local"><small>Blank = next available queue slot.</small></label>
+      {% if engine_instance == 'concat' %}
+      <label class="lum-field"><span>Schedule public YouTube release — optional</span><input name="app_upload_at" type="datetime-local"><small>Blank = publish according to selected visibility after upload. Scheduled videos upload privately and become public at this time.</small></label>
+      <label class="lum-field"><span>Schedule timezone</span><select name="timezone_name"><option value="Asia/Karachi">Pakistan (PKT)</option><option value="UTC">UTC</option><option value="America/New_York">New York</option><option value="America/Los_Angeles">Los Angeles</option><option value="Europe/London">London</option></select></label>
+      {% else %}
+<label class="lum-field"><span>Schedule (PKT) — optional</span><input name="app_upload_at" type="datetime-local"><small>Blank = next available queue slot.</small></label>
+      {% endif %}
       </div>
       <label class="lum-field"><span>Thumbnail — optional</span><input name="thumbnail" type="file" accept="image/png,image/jpeg"></label>
     </section>
