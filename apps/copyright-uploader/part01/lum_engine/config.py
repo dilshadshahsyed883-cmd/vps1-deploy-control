@@ -28,6 +28,16 @@ if _raw_base_path in {"", "/"}:
 else:
     BASE_PATH = "/" + _raw_base_path.strip("/")
 
+# Concat must be a distinct trusted process, never a mode alias sharing LUM
+# or Copyright's secrets, SQLite queue, OAuth vault, or session cookies.
+if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+    if (not os.environ.get("LUM_DATA_DIR")
+            or not DATA_ROOT.is_absolute()
+            or DATA_ROOT.resolve() == Path("/var/lib/local-upload-manager")
+            or BASE_PATH != "/concat-studio/concat-uploader"
+            or not SUITE_AUTH_ENABLED):
+        raise RuntimeError("Concat Uploader requires an isolated data root, canonical base path and trusted Scene SSO")
+
 # Reused desktop core stores all mutable state below this permanent VPS path.
 os.environ.setdefault("YOUTUBE_UPLOAD_MANAGER_DATA_DIR", str(CORE_DATA_ROOT))
 
