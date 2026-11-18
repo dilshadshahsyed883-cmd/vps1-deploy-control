@@ -166,6 +166,8 @@ class ProjectStore:
                 "SELECT paused FROM copyright_owner_queues WHERE owner_username=?",
                 (owner.strip(),),
             ).fetchone()
+        if row is None and os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+            return True  # No Concat queue is ever armed before the owner clicks Start.
         return bool(row and int(row["paused"]))
 
     def set_owner_queue_paused(self, owner: str, paused: bool) -> None:
