@@ -143,6 +143,8 @@ class VPSUploadWorker:
         # 2) One owner-bound wrapper may claim exactly one core video row.
         concat = os.getenv("LUM_ENGINE_INSTANCE") == "concat"
         core_video_id = int(project.get("core_video_id") or 0)
+        if concat and project.get("publish_at") and str(project.get("privacy_status") or "").lower() != "public":
+            raise RuntimeError("Scheduled Concat release visibility changed; only Public can be scheduled")
         if concat:
             # Re-check at execution time: a channel may have been revoked since admission.
             StudioTenants(self.db).require(
@@ -188,6 +190,15 @@ class VPSUploadWorker:
             self.store.event(project_id, f"Core upload job #{core_video_id} created")
 
         core = self.db.get_video(core_video_id) or {}
+        if concat and project.get("publish_at") and str(core.get("status") or "") not in {
+                UploadStatus.UPLOADED.value, UploadStatus.PUBLISHED.value}:
+            scheduled = datetime.fromisoformat(str(project["publish_at"]).replace("Z", "+00:00"))
+            if (scheduled.tzinfo is None or
+                    scheduled.astimezone(timezone.utc) <= datetime.now(timezone.utc) + timedelta(minutes=10)):
+                self.store.update(project_id, status="PAUSED",
+                    error_message="Scheduled public release is no longer safely in the future; review and reschedule before retrying")
+                self.store.event(project_id, "Unsafe expired publishAt blocked before YouTube upload", "WARNING")
+                return
         if concat and str(core.get("recovery_state") or "") == "REVIEW_REQUIRED":
             self.store.update(project_id, status="PAUSED",
                 error_message="Remote upload outcome unknown; review YouTube Studio before authorizing retry")
