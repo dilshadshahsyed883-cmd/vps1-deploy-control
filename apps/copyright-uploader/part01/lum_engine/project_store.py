@@ -86,6 +86,8 @@ class ProjectStore:
             columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
             if "source_fingerprint" not in columns:
                 conn.execute("ALTER TABLE projects ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''")
+            if "publish_at" not in columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN publish_at TEXT NOT NULL DEFAULT ''")
             if "source_origin" not in columns:
                 conn.execute("ALTER TABLE projects ADD COLUMN source_origin TEXT NOT NULL DEFAULT ''")
             if "vps_folder" not in columns:
@@ -240,22 +242,23 @@ class ProjectStore:
             str(data.get("source_fingerprint") or ""),
             str(data.get("source_origin") or ""),
             str(data.get("vps_folder") or ""),
+            str(data.get("publish_at") or ""),
         )
         if not values[0]:
             raise ValueError("Project owner is required")
         if values[13] <= 0:
             raise ValueError("Channel is required")
-        if values[-2] not in {"folder", "pc_upload", "drive_link", "concat_link", ""}:
+        if values[-3] not in {"folder", "pc_upload", "drive_link", "concat_link", ""}:
             raise ValueError("Invalid source origin")
-        if values[-2] == "folder" and not str(data.get("source_file_name") or ""):
+        if values[-3] == "folder" and not str(data.get("source_file_name") or ""):
             raise ValueError("Folder video name is required")
         with self.connect() as conn:
             try:
                 cur = conn.execute("""
                 INSERT INTO projects(owner_username,ui_mode,source_mode,drive_url,thumbnail_path,title,description,tags,
                     category_id,privacy_status,app_upload_at,made_for_kids,playlist_id,channel_db_id,group_name,status,created_at,updated_at,
-                    staging_path,source_file_name,source_file_size,source_fingerprint,source_origin,vps_folder)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    staging_path,source_file_name,source_file_size,source_fingerprint,source_origin,vps_folder,publish_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, values)
             except sqlite3.IntegrityError as exc:
                 raise ValueError("This video was already queued or uploaded to the selected channel") from exc
