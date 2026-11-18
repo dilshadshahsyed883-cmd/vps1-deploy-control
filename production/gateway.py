@@ -366,10 +366,12 @@ def verify_experiment_nav_no_gateway(revision):
         if shell.count(token) != 1:
             raise RuntimeError("Experiment navigation registry missing or duplicated")
         nav = shell.split(token, 1)[1].split("]);", 1)[0]
-        for label in ("Antidetect Browser", "Upload Studio", "Concat"):
+        for label in ("Concat",):
             if '["' + label + '",' not in nav:
                 raise RuntimeError("Experiment navigation approved tab missing")
-        for label in ("Auto Script", "Self Media Library", "Video Studio"):
+        for label in ("Auto Script", "Self Media Library", "Video Studio",
+                      "Antidetect Browser", "Upload Studio", "HeyGen Studio",
+                      "Voice Clone", "Imagen"):
             if '["' + label + '",' in nav:
                 raise RuntimeError("Experiment navigation hidden tab reappeared")
         proof = "SCOPED_NAVIGATION_VERIFIED"
