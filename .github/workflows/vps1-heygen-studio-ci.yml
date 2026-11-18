@@ -49,9 +49,15 @@ jobs:
           from pathlib import Path
           base=Path("apps/scene-builder/part01/templates/base.html").read_text()
           app=Path("apps/scene-builder/part01/app.py").read_text()
-          assert base.count('href="/heygen-studio/"') == 2
+          # Admin Experiment nav shows only Concat; the non-admin direct link stays intact.
+          assert base.count('href="/heygen-studio/"') == 1
+          assert '<nav class="vps1-experiment-tabs"' in base
+          assert 'href="/cloud-render/">Concat</a>' in base
           shell=Path("apps/scene-builder/part01/static/vps1_native_site_shell.js").read_text()
-          assert '["HeyGen Studio", "/heygen-studio/", "heygen"]' in shell
+          nav=shell.split('const EXPERIMENT_NAV = Object.freeze([',1)[1].split(']);',1)[0]
+          assert '["Concat", "/cloud-render/", "cloud-render"]' in nav
+          assert '["HeyGen Studio",' not in nav
+          assert '/heygen-studio/' in shell
           assert 'register_heygen_studio' in app
           assert 'HEYGEN_STUDIO = register_heygen_studio(app, templates, DATA_DIR, require_login, require_login)' in app
           assert 'request.url.path.rstrip("/") == "/heygen-studio" or' not in app
