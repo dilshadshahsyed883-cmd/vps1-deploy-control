@@ -144,6 +144,10 @@ class ProductionTest(unittest.TestCase):
         return self.row()["remote_id"]
 
     def test_concurrency_two_dispatches_two_jobs_on_one_worker(self):
+        # Operator has approved two global shared-worker slots; the owner can
+        # request at most two of those slots without editing infrastructure.
+        with self.media.connection() as con:
+            self.media.put(con, "render_concurrency", "2")
         self.media.save({"concurrency": 2}, "alice")
         self.queue.scan(FOLDER, "alice")
         self.queue.control("start", "alice")
@@ -158,6 +162,10 @@ class ProductionTest(unittest.TestCase):
         self.assertEqual(self.queue.snapshot("alice")["concurrency"], 2)
 
     def test_lower_concurrency_does_not_cancel_active_jobs(self):
+        # Operator has approved two global shared-worker slots; the owner can
+        # request at most two of those slots without editing infrastructure.
+        with self.media.connection() as con:
+            self.media.put(con, "render_concurrency", "2")
         self.media.save({"concurrency": 2}, "alice")
         self.queue.scan(FOLDER, "alice")
         self.queue.control("start", "alice")
@@ -173,7 +181,7 @@ class ProductionTest(unittest.TestCase):
         self.assertEqual(self.queue.snapshot("alice")["active"], 2)
         self.queue.tick()
         self.assertEqual(len(self.worker.jobs), 2)
-        self.assertEqual(self.worker.concurrency, 1)
+        self.assertEqual(self.worker.concurrency, 2)
 
     def test_reject_invalid_concurrency(self):
         for value in (0, 3, True, "2", None, 1.5):
