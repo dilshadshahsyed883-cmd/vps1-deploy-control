@@ -26,6 +26,7 @@ from .oauth_web import (complete_oauth, list_clients, list_owner_clients,
 from .project_store import ProjectStore
 from .copyright_handoff import available_videos, available_folders, owner_root, owner_folder, safe_relative_folder
 from .concat_source import stage_concat_link
+from .concat_schedule import concat_publish_at
 from .copyright_ui import schedule_pkt
 from .copyright_vault import owner_vault_inventory, import_client as import_owner_client, import_token as import_owner_token
 from .four_modes import registry as four_mode_registry, validate_mode as validate_auto_mode
@@ -862,7 +863,7 @@ async def add_video(
     group_name: str = Form(""), thumbnail: UploadFile | None = File(default=None),
     source_mode: str = Form("drive_link"), video_file: UploadFile | None = File(default=None),
     folder_file: str = Form(""), vps_folder: str = Form(""), profile_id: int = Form(0),
-    concat_video_link: str = Form(""),
+    concat_video_link: str = Form(""), timezone_name: str = Form("Asia/Karachi"),
 ):
     user = current_user(request); require_csrf(request, csrf_token)
     thumb_path = ""
@@ -946,6 +947,11 @@ async def add_video(
             if _pkt_value.tzinfo is None:
                 _pkt_value = _pkt_value.replace(tzinfo=_PktZoneInfo("Asia/Karachi"))
             app_upload_at_utc = _pkt_value.astimezone(_pkt_utc.utc).replace(microsecond=0).isoformat()
+        publish_at_utc = ""
+        if upload_instance == "concat":
+            publish_at_utc = concat_publish_at(app_upload_at, timezone_name, privacy_status)
+            # Concat schedules YouTube PUBLICATION, not the start of VPS upload.
+            app_upload_at_utc = ""
         project_id = store.create_project({
             "owner_username": str(user["username"]), "ui_mode": user_mode(user),
             "source_mode": "local_file" if owned_staging else "drive_link",
@@ -955,6 +961,7 @@ async def add_video(
             "source_origin": source_mode, "vps_folder": vps_folder if source_mode == "folder" else "",
             "title": title, "description": description, "tags": tags, "category_id": category_id,
             "privacy_status": privacy_status, "app_upload_at": app_upload_at_utc,
+            "publish_at": publish_at_utc,
             "made_for_kids": str(made_for_kids).lower() in {"1", "true", "on", "yes"},
             "playlist_id": playlist_id, "channel_db_id": channel_db_id, "group_name": group_name,
         })
