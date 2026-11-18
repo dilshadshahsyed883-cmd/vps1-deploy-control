@@ -359,9 +359,12 @@ class GpuStudioTests(unittest.TestCase):
         concat = (root / "templates/cloud_render.html").read_text()
         heygen = (root / "templates/heygen_studio.html").read_text()
         app = (root / "app.py").read_text()
-        for label in ("Concat", "HeyGen", "Voice Clone", "Imagen"):
-            self.assertIn(label, base)
-            self.assertIn(label, shell)
+        nav_html = base.split('class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
+        nav_js = shell.split("const EXPERIMENT_NAV = Object.freeze([", 1)[1].split("]);", 1)[0]
+        for nav in (nav_html, nav_js):
+            self.assertIn("Concat", nav)
+            for label in ("Antidetect Browser", "Upload Studio", "HeyGen Studio", "Voice Clone", "Imagen"):
+                self.assertNotIn(label, nav)
         self.assertIn('href="/cloud-render/">Concat</a>', base)
         self.assertIn('id="cloud-heading">Concat</h2>', concat)
         self.assertIn('id="hg-models" hidden', heygen)
