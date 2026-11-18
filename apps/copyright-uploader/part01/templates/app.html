@@ -72,7 +72,7 @@
     <section class="lum-card lum-span-2 copyright-source-card">
       <div class="lum-card-head"><div><h2>Concat Video Link</h2><p>Paste Copy Video Link from your completed, owner-verified Cloud Render MP4.</p></div><span class="lum-badge brand">Manual queue</span></div>
       <select name="source_mode" id="copyright-source-mode" hidden aria-label="Video source"><option value="concat_link" selected>Concat Video Link</option></select>
-      <label class="lum-field"><span>Concat Video Link</span><input name="concat_video_link" type="url" maxlength="2048" required placeholder="https://app.scenebuilder.online/api/cloud-render/media/VIDEO_ID/file" autocomplete="off"></label>
+      <label class="lum-field"><span>Concat Video Link</span><input name="concat_video_link" type="url" maxlength="2048" value="{{ concat_source_prefill|e }}" required placeholder="https://app.scenebuilder.online/api/cloud-render/media/VIDEO_ID/file" autocomplete="off"></label>
       <p class="lum-note">Only video links belonging to this account are accepted. Unverified/legacy videos cannot be queued.</p>
     </section>
     {% else %}
@@ -128,7 +128,7 @@
     </section>
     <section class="lum-card">
       <h2>Video Metadata</h2>
-      <label class="lum-field"><span>Title</span><input name="title" maxlength="100" required placeholder="Video title"></label>
+      <label class="lum-field"><span>Title</span><input name="title" maxlength="100" required placeholder="Video title" {% if engine_instance == 'concat' %}value="{{ concat_title_prefill|e }}"{% endif %}></label>
       <label class="lum-field"><span>Description</span><textarea name="description" maxlength="5000" rows="5"></textarea></label>
       <label class="lum-field"><span>Tags</span><input name="tags" placeholder="tag1, tag2"></label>
       <div class="lum-row"><label class="lum-field"><span>Category ID</span><input name="category_id" value="22"></label><label class="lum-field"><span>Playlist ID</span><input name="playlist_id" placeholder="Optional"></label></div>
@@ -799,6 +799,9 @@
               <td>
                 <div class="lum-sheet-row-actions">
                   <a class="lum-button secondary" href="{{ base_path }}/app?tab=sheets&source_id={{ src.id }}" data-lum-soft-link>Edit</a>
+                  {% if engine_instance == 'concat' %}
+                  <a class="lum-button secondary" href="{{ base_path }}/app?tab=sheets&amp;source_id={{ src.id }}&amp;preview_concat=1">Preview Concat Links</a>
+                  {% endif %}
                   <form method="post" action="{{ base_path }}/actions/sheets/sync" data-lum-soft-form>
                     <input type="hidden" name="csrf_token" value="{{ csrf }}">
                     <input type="hidden" name="source_id" value="{{ src.id }}">
@@ -815,6 +818,23 @@
         <div class="lum-empty">No Google Sheet source saved yet.</div>
       {% endif %}
     </section>
+    {% if engine_instance == 'concat' and selected_sheet_source %}
+    <section class="lum-card">
+      <div class="lum-card-head"><div><h2>Concat Video Links</h2><p>Optional video metadata from the same owned Sheet. Choose a link to prefill Upload Engine; no queue or YouTube action occurs until you submit and manually start your queue.</p></div></div>
+      {% if concat_sheet_error %}<p role="alert">{{ concat_sheet_error }}</p>{% endif %}
+      {% if concat_sheet_videos %}
+      <div class="lum-table-wrap"><table class="lum-table">
+        <thead><tr><th>Sheet Row</th><th>Title</th><th>Verified Link Format</th><th>Action</th></tr></thead><tbody>
+        {% for item in concat_sheet_videos %}
+        <tr><td>{{ item.row }}</td><td>{{ item.title or 'Untitled' }}</td><td><code>{{ item.video_link }}</code></td>
+          <td><a class="lum-button secondary" href="{{ base_path }}/app?tab=add_video&amp;concat_video_link={{ item.video_link|urlencode }}&amp;concat_title={{ item.title|urlencode }}">Use in Upload Engine</a></td></tr>
+        {% endfor %}
+        </tbody></table></div>
+      {% elif not concat_sheet_error %}
+      <p class="lum-note">Select “Preview Concat Links” for this source. A column named Concat Video Link, Concat Link or Video Link is recognized. Access and media ownership are rechecked when a job is submitted.</p>
+      {% endif %}
+    </section>
+    {% endif %}
 {% elif tab == 'profiles' and engine_instance == 'copyright' %}
     <section class="lum-card">
       <div class="lum-card-head"><h2>Upload Profiles</h2><div class="lum-actions"><span class="lum-badge">{{ copyright_profiles|length }} saved</span><a class="lum-button primary" href="#copyright-new-profile">New Profile</a></div></div>
