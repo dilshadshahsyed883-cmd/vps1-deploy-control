@@ -99,6 +99,8 @@ class SceneSSOTests(unittest.TestCase):
             self.assertIsNotNone(issuer.active_sid(conn, self.session, "Alice", now=1001))
             issuer.revoke_session(conn, self.session, now=1002)
             self.assertIsNone(issuer.active_sid(conn, self.session, "Alice", now=1003))
+        # Scene logout also clears the signed browser session; no fallback identity remains.
+        self.session.clear()
         with self.assertRaises(issuer.SSORejected):
             self.handoff(now=1003)
         self.assertNotIn(issuer.SID_KEY, self.session)
