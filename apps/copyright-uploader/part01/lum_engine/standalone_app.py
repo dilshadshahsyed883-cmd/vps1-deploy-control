@@ -27,6 +27,8 @@ from .project_store import ProjectStore
 from .copyright_handoff import available_videos, available_folders, owner_root, owner_folder, safe_relative_folder
 from .concat_source import stage_concat_link
 from .concat_schedule import concat_publish_at
+from .concat_sheet import preview_sheet_videos
+from .concat_source import parse_concat_link, ConcatSourceError
 from .copyright_ui import schedule_pkt
 from .copyright_vault import owner_vault_inventory, import_client as import_owner_client, import_token as import_owner_token
 from .four_modes import registry as four_mode_registry, validate_mode as validate_auto_mode
@@ -499,7 +501,7 @@ def root() -> RedirectResponse:
 
 
 @app.get(route("/app"), response_class=HTMLResponse)
-def app_page(request: Request, tab: str = "", message: str = "", error: str = "", embedded: int = 0, source_id: int = 0, auto_profile_id: int = 0, new_profile: int = 0, auto_mode: str = "engine1", profile_id: int = 0):
+def app_page(request: Request, tab: str = "", message: str = "", error: str = "", embedded: int = 0, source_id: int = 0, auto_profile_id: int = 0, new_profile: int = 0, auto_mode: str = "engine1", profile_id: int = 0, preview_concat: int = 0, concat_video_link: str = "", concat_title: str = ""):
     user = current_user(request)
     if SUITE_AUTH_ENABLED and embedded:
         request.session["lum_embedded"] = "1"
@@ -528,7 +530,7 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     channel_context = channels_page_context(
         db, web_clients, permitted_channels, permitted_sheets,
         inventory_channels=channels if os.getenv("LUM_ENGINE_INSTANCE") in
-            {"song", "shortstudio", "copyright"} else None,
+            {"song", "shortstudio", "copyright", "concat"} else None,
         prefer_stored_token_paths=OWNER_SCOPED,
     ) if (selected == "channels" or (selected == "add_video" and
              OWNER_SCOPED)) else {
@@ -655,6 +657,27 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         auto_v6["eligible_channels"] = 0
     if selected_sheet_source and not any(int(x.get("id") or 0) == int(selected_sheet_source.get("id") or 0) for x in sheet_sources):
         selected_sheet_source = None
+    # Owner-scoped optional Concat link preview from the SAME first-tab Sheets
+    # CSV engine. Preview never creates queue rows or contacts arbitrary URLs.
+    concat_sheet_videos = []
+    concat_sheet_error = ""
+    if (engine_instance == "concat" and selected == "sheets"
+            and selected_sheet_source and int(preview_concat or 0) == 1):
+        try:
+            studio_tenants.require("sheet", int(selected_sheet_source["id"]), user)
+            raw = tenant_fetch_sheet_csv(selected_sheet_source["sheet_url_or_id"], None)
+            concat_sheet_videos = preview_sheet_videos(
+                raw, origin=os.getenv("CONCAT_PUBLIC_ORIGIN", "https://app.scenebuilder.online"))
+        except Exception:
+            concat_sheet_error = "Sheet preview is unavailable; check access and retry Sync"
+    concat_source_prefill = ""
+    if engine_instance == "concat" and selected == "add_video" and concat_video_link:
+        try:
+            parse_concat_link(concat_video_link,
+                              origin=os.getenv("CONCAT_PUBLIC_ORIGIN", "https://app.scenebuilder.online"))
+            concat_source_prefill = concat_video_link
+        except ConcatSourceError:
+            pass
     return templates.TemplateResponse("app.html", {
         "request": request,
         "user": user,
@@ -669,6 +692,10 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "projects": projects,
         "logs": logs,
         "sheet_sources": sheet_sources,
+        "concat_sheet_videos": concat_sheet_videos,
+        "concat_sheet_error": concat_sheet_error,
+        "concat_source_prefill": concat_source_prefill,
+        "concat_title_prefill": str(concat_title or "")[:100],
         "selected_sheet_source": selected_sheet_source,
         "channel_rows": channel_context["rows"],
         "channel_summary": channel_context["summary"],
