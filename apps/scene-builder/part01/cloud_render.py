@@ -605,7 +605,9 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
 
     @app.post("/api/cloud-render/token/rotate")
     def token_rotate(request: Request):
-        csrf(request); return manager.rotate_token()
+        csrf(request)
+        require_admin(request)  # shared receiver token is privileged infrastructure
+        return manager.rotate_token()
 
     @app.post("/api/cloud-render/gpu/test")
     def gpu_test(request: Request):
