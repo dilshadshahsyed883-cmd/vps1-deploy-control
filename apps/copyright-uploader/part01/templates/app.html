@@ -26,16 +26,16 @@
   {% if tab != 'auto_stream' %}
   <div class="lum-tabs-shell" data-lum-sticky-tabs>
 <nav class="lum-tabs" aria-label="Copyright Uploader workspace">
-      {% if engine_instance == 'concat' %}
-      <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
-      <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
-      <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Upload Engine</a>
-      <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
-      {% elif engine_instance == 'copyright' %}
+      {% if engine_instance == 'copyright' %}
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
       <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
       <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Add Video</a>
+      <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
+      {% elif engine_instance == 'concat' %}
+      <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
+      <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
+      <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Upload Engine</a>
       <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
       {% elif engine_instance == 'song' %}
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
