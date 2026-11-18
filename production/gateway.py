@@ -366,9 +366,19 @@ def verify_experiment_nav_no_gateway(revision):
         if shell.count(token) != 1:
             raise RuntimeError("Experiment navigation registry missing or duplicated")
         nav = shell.split(token, 1)[1].split("]);", 1)[0]
-        for label in ("Antidetect Browser", "Upload Studio", "Concat"):
+        for label in ("Antidetect Browser", "Upload Studio"):
             if '["' + label + '",' not in nav:
                 raise RuntimeError("Experiment navigation approved tab missing")
+        # Compatible with the previous published Studio layout and the new
+        # independent Concat Studio registry; never require two Concat entries.
+        if '["Concat",' not in nav:
+            concat_token = "const CONCAT_NAV = Object.freeze(["
+            if shell.count(concat_token) != 1:
+                raise RuntimeError("Concat Studio navigation registry missing")
+            concat_nav = shell.split(concat_token, 1)[1].split("]);", 1)[0]
+            for label in ("Concat", "Concat Uploader"):
+                if '["' + label + '",' not in concat_nav:
+                    raise RuntimeError("Concat Studio navigation link missing")
         for label in ("Auto Script", "Self Media Library", "Video Studio"):
             if '["' + label + '",' in nav:
                 raise RuntimeError("Experiment navigation hidden tab reappeared")
