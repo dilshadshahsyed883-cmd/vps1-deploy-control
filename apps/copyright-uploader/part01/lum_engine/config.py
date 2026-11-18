@@ -32,14 +32,14 @@ else:
 os.environ.setdefault("YOUTUBE_UPLOAD_MANAGER_DATA_DIR", str(CORE_DATA_ROOT))
 
 DEFAULT_SETTINGS = {
-    "engine_enabled": "0" if os.getenv("LUM_ENGINE_INSTANCE", "engine1") in {"engine2", "shorts", "song", "shortstudio"} else "1",
+    "engine_enabled": "0" if os.getenv("LUM_ENGINE_INSTANCE", "engine1") in {"engine2", "shorts", "song", "shortstudio", "concat"} else "1",
     "pause_after_current": "0",
     "delete_staged_after_verified": "1",
     "remote_verification_enabled": "1",
     "source_mode": "drive_link",
     "max_active_uploads": "1",
     # Copyright UI compatibility flags never arm an automatic uploader.
-    "sheets_sync_enabled": "1" if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else "0",
+    "sheets_sync_enabled": "1" if os.getenv("LUM_ENGINE_INSTANCE") in {"copyright", "concat"} else "0",
     "auto_engine_enabled": "1" if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else "0",
     "bulk_import_enabled": "0",
     "drive_delete_source_after_verified": "0",
