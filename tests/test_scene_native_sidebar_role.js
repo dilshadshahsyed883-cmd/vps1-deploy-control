@@ -61,7 +61,7 @@ class Element {
 }
 const all = (root) => [root, ...root.children.flatMap(all)];
 
-function boot(workspace, role) {
+function boot(workspace, role, pathname="/") {
   const body = new Element("body");
   const listeners = {};
   const document = {
@@ -73,7 +73,7 @@ function boot(workspace, role) {
     addEventListener: (event, fn) => {listeners[event] = fn},
   };
   const winEvents = {};
-  const window = {addEventListener: (event, fn) => {winEvents[event] = fn}};
+  const window = {location:{pathname,hash:""},addEventListener: (event, fn) => {winEvents[event] = fn}};
   window.top = window;
   window.self = window;
   let identity = role;
@@ -193,8 +193,8 @@ test("Experiment Studio second-level tabs stay hidden for nonadmins and appear f
   const tabs=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
   assert.ok(tabs);
   assert.equal(tabs.hidden, true, "non-admin Experiment navigation must be hidden");
-  assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Upload Studio","Concat","HeyGen Studio","Voice Clone","Imagen"]);
-  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/local-upload-manager/app?embedded=1&tab=dashboard","/cloud-render/","/heygen-studio/","/voice-clone-studio/","/imagen-studio/"]);
+  assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Upload Studio","HeyGen Studio","Voice Clone","Imagen"]);
+  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/local-upload-manager/app?embedded=1&tab=dashboard","/heygen-studio/","/voice-clone-studio/","/imagen-studio/"]);
   assert.equal(tabs.children.filter(e=>e.attrs["aria-current"]==="page").length,0);
   assert.equal(h.links().filter(e=>e.href==="/admin").length,0);
   await h.update({authenticated:true,is_admin:true,username:"owner"});
@@ -249,7 +249,7 @@ for (const workspace of ["uploader","stream","acs"]) {
     assert.equal(nav.children.filter(e=>e.href==="/experiment-studio/"&&e.textContent==="Experiment Studio").length,1);
     const experiment=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
     assert.ok(experiment);
-    assert.deepEqual(experiment.children.map(e=>e.textContent),["Antidetect Browser","Upload Studio","Concat","HeyGen Studio","Voice Clone","Imagen"]);
+    assert.deepEqual(experiment.children.map(e=>e.textContent),["Antidetect Browser","Upload Studio","HeyGen Studio","Voice Clone","Imagen"]);
     // Direct Video Studio URL remains functional; no hidden tab can be selected.
     const selected=workspace==="acs"?null:"Upload Studio";
     assert.equal(experiment.children.filter(e=>e.attrs["aria-current"]==="page"&&e.textContent===selected).length,selected?1:0);
