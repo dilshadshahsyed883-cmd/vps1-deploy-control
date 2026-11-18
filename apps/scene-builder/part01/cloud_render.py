@@ -26,6 +26,7 @@ from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from cloud_render_production import ProductionQueue, Worker, WorkerWait
+from cloud_render_owner import migrate_files, owner_name, get_owner_config, put_owner_config
 
 CHUNK_MAX = 8 * 1024 * 1024
 MEDIA_MAX = 20 * 1024 * 1024 * 1024
@@ -152,6 +153,7 @@ class CloudRender:
                 error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )""")
             con.execute("CREATE TABLE IF NOT EXISTS config(key TEXT PRIMARY KEY, val TEXT NOT NULL)")
+            migrate_files(con)
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('auto_upload','0')")
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('priority','high')")
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('render_concurrency','1')")
@@ -179,11 +181,15 @@ class CloudRender:
         finally:
             con.close()
 
-    def get(self, con, key):
+    def get(self, con, key, owner=None):
+        if owner is not None:
+            return get_owner_config(con, owner, key)
         row = con.execute("SELECT val FROM config WHERE key=?", (key,)).fetchone()
         return row["val"] if row else ""
 
-    def put(self, con, key, val):
+    def put(self, con, key, val, owner=None):
+        if owner is not None:
+            return put_owner_config(con, owner, key, val)
         con.execute("INSERT INTO config(key,val) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET val=excluded.val",
                     (key, str(val)))
 
@@ -199,9 +205,10 @@ class CloudRender:
             self.put(con, "receiver_token", new)
         return {"receiver_token": new, "warning": "Shown once; replace RENDER_OUTPUT_TOKEN in the Salad worker securely."}
 
-    def config(self):
+    def config(self, owner):
+        owner = owner_name(owner)
         with self.connection() as con:
-            cfg = {k: self.get(con, k) for k in ("auto_upload","endpoint","priority","health_path","timeout","salad_key","worker_key","enabled","render_concurrency")}
+            cfg = {k: self.get(con, k, owner) for k in ("auto_upload","endpoint","priority","health_path","timeout","salad_key","worker_key","enabled","render_concurrency")}
         return {**GPU, "concurrency": int(cfg["render_concurrency"] or "1"),
                 "auto_upload": cfg["auto_upload"] == "1",
                 "endpoint": cfg["endpoint"], "priority": cfg["priority"] or "high",
@@ -212,7 +219,8 @@ class CloudRender:
                 "worker_key_saved": bool(cfg["worker_key"]),
                 "drive_bridge_available": shutil.which("rclone") is not None}
 
-    def save(self, obj):
+    def save(self, obj, owner):
+        owner = owner_name(owner)
         accepted = {"auto_upload","endpoint","priority","health_path","timeout","salad_key","worker_key","concurrency"}
         if not isinstance(obj, dict) or set(obj) - accepted:
             raise HTTPException(400, "Unknown GPU configuration field")
@@ -220,30 +228,30 @@ class CloudRender:
             if "concurrency" in obj:
                 if type(obj["concurrency"]) is not int or obj["concurrency"] not in (1, 2):
                     raise HTTPException(400, "Render concurrency must be exactly 1 or 2")
-                self.put(con, "render_concurrency", obj["concurrency"])
+                self.put(con, "render_concurrency", obj["concurrency"], owner)
             if "auto_upload" in obj:
                 if type(obj["auto_upload"]) is not bool:
                     raise HTTPException(400, "auto_upload must be boolean")
-                self.put(con, "auto_upload", int(obj["auto_upload"]))
+                self.put(con, "auto_upload", int(obj["auto_upload"], owner))
             if "endpoint" in obj:
                 endpoint = endpoint_url(obj["endpoint"])
                 # Re-saving an unchanged endpoint (e.g. only concurrency
                 # changed in GPU Config) must not disconnect a live worker.
-                if endpoint != self.get(con, "endpoint"):
-                    self.put(con, "endpoint", endpoint)
-                    self.put(con, "enabled", "0")
+                if endpoint != self.get(con, "endpoint", owner):
+                    self.put(con, "endpoint", endpoint, owner)
+                    self.put(con, "enabled", "0", owner)
             if "priority" in obj:
                 if obj["priority"] not in ("low","medium","high"):
                     raise HTTPException(400, "Unsupported priority")
-                self.put(con, "priority", obj["priority"])
+                self.put(con, "priority", obj["priority"], owner)
             if "health_path" in obj:
-                self.put(con, "health_path", worker_path(obj["health_path"]))
+                self.put(con, "health_path", worker_path(obj["health_path"], owner))
             if "timeout" in obj:
                 try: timeout = int(obj["timeout"])
                 except (TypeError, ValueError): raise HTTPException(400, "Invalid timeout") from None
                 if not 10 <= timeout <= 1800:
                     raise HTTPException(400, "Timeout outside 10–1800 seconds")
-                self.put(con, "timeout", timeout)
+                self.put(con, "timeout", timeout, owner)
             for k in ("salad_key", "worker_key"):
                 if obj.get(k):
                     value = str(obj[k])
@@ -251,26 +259,17 @@ class CloudRender:
                         raise HTTPException(400, "Invalid key")
                     self.put(con, k, value)
         if "concurrency" in obj:
-            # Apply immediately when the Salad worker is connected. If it is
-            # offline, the persisted setting is synchronized at next dispatch.
             self.production.wake.set()
-            sync = "pending"
-            try:
-                worker = self.production.worker_factory("")
-                worker.timeout = min(worker.timeout, 10)
-                worker.configure_concurrency(obj["concurrency"])
-                sync = "applied"
-            except WorkerWait:
-                pass
-            return {**self.config(), "concurrency_sync": sync}
-        return self.config()
+            return {**self.config(owner), "concurrency_sync": "owner_setting"}
+        return self.config(owner)
 
-    def probe(self, connect=False):
+    def probe(self, owner, connect=False):
+        owner = owner_name(owner)
         with self.connection() as con:
-            url = endpoint_url(self.get(con, "endpoint"))
-            path = self.get(con, "health_path") or "/health/ready"
-            gateway = self.get(con, "salad_key")
-            api = self.get(con, "worker_key")
+            url = endpoint_url(self.get(con, "endpoint", owner))
+            path = self.get(con, "health_path", owner) or "/health/ready"
+            gateway = self.get(con, "salad_key", owner)
+            api = self.get(con, "worker_key", owner)
         if not url:
             raise HTTPException(409, "SaladCloud endpoint is missing")
         headers = {"Accept": "application/json"}
@@ -286,17 +285,18 @@ class CloudRender:
             healthy, status = False, "unreachable"
         if connect:
             with self.connection() as con:
-                self.put(con, "enabled", int(healthy))
-        return {"ok": healthy, "status": status, "connected": healthy if connect else self.config()["enabled"]}
+                self.put(con, "enabled", int(healthy), owner)
+        return {"ok": healthy, "status": status, "connected": healthy if connect else self.config(owner)["enabled"]}
 
-    def production_worker(self, pinned):
+    def production_worker(self, pinned, owner):
+        owner = owner_name(owner)
         with self.connection() as con:
-            url = endpoint_url(self.get(con, "endpoint"))
-            enabled = self.get(con, "enabled") == "1"
-            token = self.get(con, "worker_key")
-            gateway = self.get(con, "salad_key")
-            health = worker_path(self.get(con, "health_path") or "/health/ready")
-            timeout = int(self.get(con, "timeout") or 300)
+            url = endpoint_url(self.get(con, "endpoint", owner))
+            enabled = self.get(con, "enabled", owner) == "1"
+            token = self.get(con, "worker_key", owner)
+            gateway = self.get(con, "salad_key", owner)
+            health = worker_path(self.get(con, "health_path", owner) or "/health/ready")
+            timeout = int(self.get(con, "timeout", owner) or 300)
         if pinned and url != pinned:
             raise WorkerWait("Restore the original GPU endpoint to recover or cancel this project.")
         if not enabled or not url or not token:
@@ -343,9 +343,9 @@ class CloudRender:
         if auto:
             self.pool.submit(self._upload, job)
 
-    def disconnect(self):
+    def disconnect(self, owner):
         with self.connection() as con:
-            self.put(con, "enabled", "0")
+            self.put(con, "enabled", "0", owner)
         return {"ok": True}
 
     def local(self, job):
@@ -353,10 +353,11 @@ class CloudRender:
             raise HTTPException(400, "Invalid job ID")
         return self.media / (job + ".mp4")
 
-    def listing(self):
+    def listing(self, owner):
+        owner = owner_name(owner)
         with self.connection() as con:
-            rows = con.execute("SELECT id,name,size,received,state,drive_path,error,created_at FROM files ORDER BY created_at DESC,id DESC LIMIT 500").fetchall()
-        return {"items": [dict(r) for r in rows], "auto_upload": self.config()["auto_upload"]}
+            rows = con.execute("SELECT id,name,size,received,state,drive_path,error,created_at FROM files WHERE owner_username=? ORDER BY created_at DESC,id DESC LIMIT 500", (owner,)).fetchall()
+        return {"items": [dict(r) for r in rows], "auto_upload": self.config(owner)["auto_upload"]}
 
     def receive(self, job, index, data, *, name, size, sha):
         final = self.local(job)
@@ -445,34 +446,37 @@ class CloudRender:
             raise HTTPException(422, "MP4 size or SHA256 mismatch; staged copy retained")
         return md5.hexdigest()
 
-    def rename(self, job, new_name):
+    def rename(self, job, new_name, owner):
         self.local(job)
         new_name = filename(new_name)
+        owner = owner_name(owner)
         with self.lock, self.connection() as con:
-            row = con.execute("SELECT state,size FROM files WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT state,size FROM files WHERE id=? AND owner_username=?", (job,owner)).fetchone()
             if not row: raise HTTPException(404, "File not found")
             if row["state"] not in ("ready","failed"):
                 raise HTTPException(409, "File busy or already delivered")
             con.execute("UPDATE files SET name=? WHERE id=?", (new_name,job))
         return {"ok": True}
 
-    def delete(self, job):
+    def delete(self, job, owner):
         local = self.local(job)
+        owner = owner_name(owner)
         with self.lock, self.connection() as con:
-            row = con.execute("SELECT state FROM files WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT state FROM files WHERE id=? AND owner_username=?", (job,owner)).fetchone()
             if not row: raise HTTPException(404, "File not found")
             if row["state"] in ("uploading","queued"):
                 raise HTTPException(409, "Cannot delete during Drive transfer")
             source = self.staging / (job+".part") if row["state"] == "receiving" else local
             if source.is_symlink(): raise HTTPException(409, "Unsafe file path")
             source.unlink(missing_ok=True)
-            con.execute("DELETE FROM files WHERE id=?", (job,))
+            con.execute("DELETE FROM files WHERE id=? AND owner_username=?", (job,owner))
         return {"ok": True}
 
-    def queue(self, job):
+    def queue(self, job, owner):
         local = self.local(job)
+        owner = owner_name(owner)
         with self.lock, self.connection() as con:
-            row = con.execute("SELECT state,size FROM files WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT state,size FROM files WHERE id=? AND owner_username=?", (job,owner)).fetchone()
             if not row: raise HTTPException(404, "File not found")
             if row["state"] not in ("ready","failed"):
                 raise HTTPException(409, "File is not ready for upload")
