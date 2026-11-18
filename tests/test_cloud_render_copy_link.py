@@ -15,7 +15,7 @@ SCENE = ROOT / "apps/scene-builder/part01"
 sys.path.insert(0, str(SCENE))
 from cloud_render import register_cloud_render
 
-MP4 = b"\\x00\\x00\\x00\\x18ftypisom" + b"\\x00" * 81
+MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 81
 
 
 class CloudRenderCopyLinkTests(unittest.TestCase):
