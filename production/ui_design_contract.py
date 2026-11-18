@@ -72,29 +72,23 @@ def violations(source: dict[str, str]) -> list[str]:
             "mobile top baseline missing")
     require("shell_js", 'if (window.self !== window.top) return;',
             "do not inject duplicate nav into a nested document")
-    require("shell_js", '["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"]',
-            "one combined Upload Studio sidebar entry missing")
     require("shell_js", 'addLink(tabs, "Auto Uploader"',
             "Auto Uploader primary tab missing")
     require("shell_js", 'addLink(tabs, "Auto Stream"',
             "Auto Stream independent primary tab missing")
-    for label, url, key in (
-        ("Concat", "/cloud-render/", "cloud-render"),
-        ("HeyGen Studio", "/heygen-studio/", "heygen"),
-        ("Voice Clone", "/voice-clone-studio/", "voice-clone"),
-        ("Imagen", "/imagen-studio/", "imagen"),
-    ):
-        require("shell_js", f'["{label}", "{url}", "{key}"]',
-                f"{label} canonical Experiment Studio navigation missing")
+    require("shell_js", '["Concat", "/cloud-render/", "cloud-render"]',
+            "Concat canonical Experiment Studio navigation missing")
     parts = source["shell_js"].split("const EXPERIMENT_NAV = Object.freeze([", 1)
     if len(parts) != 2 or "]);" not in parts[1]:
         issues.append("shell_js: Experiment Studio navigation registry missing")
     else:
         experiment_nav = parts[1].split("]);", 1)[0]
-        for label in ("Auto Script", "Self Media Library", "Video Studio"):
+        for label in ("Auto Script", "Self Media Library", "Video Studio",
+                      "Antidetect Browser", "Upload Studio", "HeyGen Studio",
+                      "Voice Clone", "Imagen"):
             if f'["{label}",' in experiment_nav:
                 issues.append(f"shell_js: hidden Experiment Studio app still visible: {label}")
-        for label in ("Antidetect Browser", "Upload Studio", "Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
+        for label in ("Concat",):
             if f'["{label}",' not in experiment_nav:
                 issues.append(f"shell_js: approved Experiment Studio app missing: {label}")
     require("shell_js", 'refreshIdentity()',
