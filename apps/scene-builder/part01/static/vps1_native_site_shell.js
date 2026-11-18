@@ -77,13 +77,9 @@
   };
   // Video and Upload remain Experiment Studio children; Voice is a primary Studio.
   // Their existing native app controls remain a third-level rail, not a new page.
+  // Only Concat is advertised; hidden studios and their direct routes remain available.
   const EXPERIMENT_NAV = Object.freeze([
-    ["Antidetect Browser", "/experiment-studio/antidetect-browser/", "antidetect"],
-    ["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"],
-    ["Concat", "/cloud-render/", "cloud-render"],
-    ["HeyGen Studio", "/heygen-studio/", "heygen"],
-    ["Voice Clone", "/voice-clone-studio/", "voice-clone"],
-    ["Imagen", "/imagen-studio/", "imagen"]
+    ["Concat", "/cloud-render/", "cloud-render"]
   ]);
   const experimentSection = pathname => {
     if (/^\/cloud-render(\/|$)/.test(pathname)) return "cloud-render";
