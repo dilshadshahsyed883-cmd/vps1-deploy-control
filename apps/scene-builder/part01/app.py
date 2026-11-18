@@ -875,6 +875,9 @@ def login(request: Request, username: str = Form(...), secret_key: str = Form(..
     # Re-login invalidates a previous Concat handoff before rotating Scene cookie.
     with db() as conn:
         _concat_sso.revoke_session(conn, request.session)
+    # Rotate prior revocable Concat SSO SID before replacing the signed Scene cookie.
+    with db() as conn:
+        _concat_sso.revoke_session(conn, request.session)
     request.session.clear()
     request.session["authenticated"] = True
     request.session["username"] = row["username"]
