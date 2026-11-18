@@ -872,10 +872,7 @@ def login(request: Request, username: str = Form(...), secret_key: str = Form(..
         )
     with db() as conn:
         conn.execute("UPDATE users SET last_login_at=? WHERE username=? COLLATE NOCASE", (now_iso(), row["username"]))
-    # Re-login invalidates a previous Concat handoff before rotating Scene cookie.
-    with db() as conn:
-        _concat_sso.revoke_session(conn, request.session)
-    # Rotate prior revocable Concat SSO SID before replacing the signed Scene cookie.
+    # Re-login invalidates a prior Concat SID before rotating Scene cookie.
     with db() as conn:
         _concat_sso.revoke_session(conn, request.session)
     request.session.clear()
