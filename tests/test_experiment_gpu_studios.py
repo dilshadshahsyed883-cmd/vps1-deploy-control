@@ -362,7 +362,8 @@ class GpuStudioTests(unittest.TestCase):
         for label in ("Concat", "HeyGen", "Voice Clone", "Imagen"):
             self.assertIn(label, base)
             self.assertIn(label, shell)
-        self.assertIn('href="/cloud-render/">Concat</a>', base)
+        self.assertIn('href="/concat-studio/concat/">Concat</a>', base)
+        self.assertIn('href="/concat-studio/concat-uploader/">Concat Uploader</a>', base)
         self.assertIn('id="cloud-heading">Concat</h2>', concat)
         self.assertIn('id="hg-models" hidden', heygen)
         self.assertIn('id="eg-gallery" hidden', (root / "templates/experiment_gpu_studio.html").read_text())
