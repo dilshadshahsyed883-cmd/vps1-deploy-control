@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -139,6 +140,39 @@ class CloudRenderOwnerAPITests(unittest.TestCase):
                 with self.subTest(user=user, path=path):
                     response = self.client.post(path, json={"name": "ignored.mp4"})
                     self.assertEqual(response.status_code, 403)
+
+    def _csrf(self, user):
+        self.client.get("/_audit/session/" + user)
+        page = self.client.get("/cloud-render/")
+        self.assertEqual(page.status_code, 200)
+        match = re.search(r'data-csrf="([^"]+)"', page.text)
+        self.assertIsNotNone(match)
+        return {"X-Cloud-Render-CSRF": match.group(1)}
+
+    def test_cross_owner_production_job_actions_denied_with_valid_csrf(self):
+        headers = self._csrf("alice")
+        created = self.client.post("/api/cloud-render/production/scan",
+            headers=headers, json={"link": "https://drive.google.com/file/d/owner-a-zip/view"})
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(created.json()["added"], 1)
+        job = self.client.get("/api/cloud-render/production").json()["items"][0]["id"]
+        for actor in ("bob", "admin"):
+            forged = self.client.post(
+                f"/api/cloud-render/production/jobs/{job}/cancel",
+                headers=self._csrf(actor))
+            self.assertEqual(forged.status_code, 404)
+        self.assertEqual(self.client.post(
+            f"/api/cloud-render/production/jobs/{job}/cancel",
+            headers=self._csrf("alice")).status_code, 200)
+
+    def test_shared_receiver_token_rotation_is_admin_only(self):
+        for actor, expected in (("alice", 403), ("bob", 403), ("admin", 200)):
+            headers = self._csrf(actor)
+            response = self.client.post("/api/cloud-render/token/rotate",
+                                        headers=headers)
+            self.assertEqual(response.status_code, expected)
+            if expected == 200:
+                self.assertTrue(response.json()["receiver_token"])
 
     def test_cross_owner_media_mutation_denied(self):
         for user, foreign_job in (("alice", "bob-media"),
