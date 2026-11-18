@@ -313,10 +313,15 @@ class CloudRender:
         name = filename(name)
         final = self.local(job)
         with self.lock, self.connection() as con:
-            row = con.execute("SELECT state,size,sha256 FROM files WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT state,size,sha256,owner_username FROM files WHERE id=?", (job,)).fetchone()
+            verified = con.execute("SELECT owner_username,output_sha FROM production_jobs WHERE remote_id=?", (job,)).fetchone()
+            if not verified or not verified["owner_username"]:
+                raise HTTPException(404, "Owner-bound render job not found.")
+            owner = owner_name(verified["owner_username"])
+            if row and row["owner_username"] != owner:
+                raise HTTPException(409, "Production output ownership mismatch.")
             if row and (row["size"] != size or row["sha256"] != sha):
                 raise HTTPException(409, "Production MP4 disagrees with the existing Media record.")
-            verified = con.execute("SELECT output_sha FROM production_jobs WHERE remote_id=?", (job,)).fetchone()
             if verified and verified["output_sha"] == sha:
                 return
             if row and row["state"] != "receiving":
@@ -331,13 +336,13 @@ class CloudRender:
                         raise HTTPException(409, "Production MP4 path is occupied.")
             else:
                 os.replace(source, final)
-            con.execute("""INSERT INTO files(id,name,size,received,sha256,md5,state)
-                           VALUES(?,?,?,?,?,?,'ready')
+            con.execute("""INSERT INTO files(id,name,size,received,sha256,md5,state,owner_username)
+                           VALUES(?,?,?,?,?,?,'ready',?)
                            ON CONFLICT(id) DO UPDATE SET name=excluded.name,received=excluded.received,
-                               md5=excluded.md5,state='ready',error=''""", (job,name,size,size,sha,md5))
+                               md5=excluded.md5,state='ready',error=''""", (job,name,size,size,sha,md5,owner))
             con.execute("UPDATE production_jobs SET output_sha=?,output_size=? WHERE remote_id=?", (sha, size, job))
             (self.staging / (job + ".part")).unlink(missing_ok=True)
-            auto = self.get(con, "auto_upload") == "1"
+            auto = self.get(con, "auto_upload", owner) == "1"
             if auto:
                 con.execute("UPDATE files SET state='queued' WHERE id=?", (job,))
         if auto:
@@ -371,9 +376,12 @@ class CloudRender:
         part = self.staging / (job + ".part")
         auto = False
         with self.lock, self.connection() as con:
-            production = con.execute("SELECT name,output_sha,output_size FROM production_jobs WHERE remote_id=?",
+            production = con.execute("SELECT name,output_sha,output_size,owner_username FROM production_jobs WHERE remote_id=?",
                                      (job,)).fetchone()
-            if production and production["output_sha"]:
+            if not production or not production["owner_username"]:
+                raise HTTPException(404, "Owner-bound render job not found.")
+            owner = owner_name(production["owner_username"])
+            if production["output_sha"]:
                 if production["output_sha"] != sha or production["output_size"] != size:
                     raise HTTPException(409, "Job upload metadata mismatch")
                 return {"ok": True, "state": "ready", "received": size}
@@ -383,9 +391,11 @@ class CloudRender:
             if row is None:
                 if index != 0:
                     raise HTTPException(409, "Start with chunk zero")
-                con.execute("INSERT INTO files(id,name,size,sha256,state) VALUES(?,?,?,?,?)",
-                            (job,name,size,sha,"receiving"))
+                con.execute("INSERT INTO files(id,name,size,sha256,state,owner_username) VALUES(?,?,?,?,?,?)",
+                            (job,name,size,sha,"receiving",owner))
                 row = con.execute("SELECT * FROM files WHERE id=?", (job,)).fetchone()
+            if row["owner_username"] != owner:
+                raise HTTPException(409, "Render job ownership mismatch")
             if row["name"] != name or row["size"] != size or row["sha256"] != sha:
                 raise HTTPException(409, "Job upload metadata mismatch")
             if row["state"] != "receiving":
@@ -419,7 +429,7 @@ class CloudRender:
                     raise HTTPException(409, "Final media path is occupied")
                 os.replace(part, final)
             con.execute("UPDATE files SET state='ready',received=?,md5=? WHERE id=?", (size,md5,job))
-            auto = self.get(con, "auto_upload") == "1"
+            auto = self.get(con, "auto_upload", owner) == "1"
             if production:
                 con.execute("UPDATE production_jobs SET output_sha=?,output_size=? WHERE remote_id=?", (sha, size, job))
                 if auto:
@@ -427,8 +437,6 @@ class CloudRender:
         if auto:
             if production:
                 self.pool.submit(self._upload, job)
-            else:
-                self.queue(job)
         return {"ok": True, "state": "ready", "received": size, "auto_queued": auto}
 
     @staticmethod
@@ -516,7 +524,7 @@ class CloudRender:
         local = self.local(job)
         with self.lock, self.connection() as con:
             row = con.execute("SELECT * FROM files WHERE id=?", (job,)).fetchone()
-            if not row or row["state"] != "queued":
+            if not row or not row["owner_username"] or row["state"] != "queued":
                 return
             con.execute("UPDATE files SET state='uploading' WHERE id=?", (job,))
         try:
@@ -533,7 +541,7 @@ class CloudRender:
                 raise RuntimeError(f'Canonical Drive Bridge remote "{remote_name}" is not configured for Cloud Render service')
             if local.is_symlink() or not local.is_file() or local.stat().st_size != row["size"]:
                 raise RuntimeError("Source file absent or changed")
-            remote = f"{remote_name}:{folder}/{job}_{filename(row['name'])}"
+            remote = f"{remote_name}:{folder}/{owner_name(row['owner_username'])}/{job}_{filename(row['name'])}"
             info = self.remote_stat(remote)
             if info is None:
                 self.execute(["rclone","copyto",str(local),remote,"--immutable"],3600)
