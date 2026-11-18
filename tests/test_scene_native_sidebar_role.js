@@ -193,8 +193,8 @@ test("Experiment Studio second-level tabs stay hidden for nonadmins and appear f
   const tabs=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
   assert.ok(tabs);
   assert.equal(tabs.hidden, true, "non-admin Experiment navigation must be hidden");
-  assert.deepEqual(tabs.children.map(e=>e.textContent),["Antidetect Browser","Upload Studio","Concat","HeyGen Studio","Voice Clone","Imagen"]);
-  assert.deepEqual(tabs.children.map(e=>e.href),["/experiment-studio/antidetect-browser/","/local-upload-manager/app?embedded=1&tab=dashboard","/cloud-render/","/heygen-studio/","/voice-clone-studio/","/imagen-studio/"]);
+  assert.deepEqual(tabs.children.map(e=>e.textContent),["Concat"]);
+  assert.deepEqual(tabs.children.map(e=>e.href),["/cloud-render/"]);
   assert.equal(tabs.children.filter(e=>e.attrs["aria-current"]==="page").length,0);
   assert.equal(h.links().filter(e=>e.href==="/admin").length,0);
   await h.update({authenticated:true,is_admin:true,username:"owner"});
@@ -240,7 +240,7 @@ test("other workspaces link directly to Voice Studio without interception", asyn
 });
 
 for (const workspace of ["uploader","stream","acs"]) {
-  test(`${workspace}: Upload Studio is only a second-level Experiment tab`, async () => {
+  test(`${workspace}: Upload Studio stays accessible without a visible Experiment tab`, async () => {
     const h=boot(workspace,{authenticated:true,is_admin:false,username:"editor"});
     await h.tick();
     const nav=all(h.body).find(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Applications");
@@ -249,9 +249,9 @@ for (const workspace of ["uploader","stream","acs"]) {
     assert.equal(nav.children.filter(e=>e.href==="/experiment-studio/"&&e.textContent==="Experiment Studio").length,1);
     const experiment=all(h.body).find(e=>e.className==="vps1-native-experiment-tabs");
     assert.ok(experiment);
-    assert.deepEqual(experiment.children.map(e=>e.textContent),["Antidetect Browser","Upload Studio","Concat","HeyGen Studio","Voice Clone","Imagen"]);
+    assert.deepEqual(experiment.children.map(e=>e.textContent),["Concat"]);
     // Direct Video Studio URL remains functional; no hidden tab can be selected.
-    const selected=workspace==="acs"?null:"Upload Studio";
+    const selected=null;
     assert.equal(experiment.children.filter(e=>e.attrs["aria-current"]==="page"&&e.textContent===selected).length,selected?1:0);
     assert.equal(nav.children.filter(e=>e.textContent==="Auto Uploader"||e.textContent==="Auto Stream").length,0);
     const tabs=all(h.body).find(e=>e.className==="vps1-native-upload-tabs");
