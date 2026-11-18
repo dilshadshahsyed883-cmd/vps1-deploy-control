@@ -77,6 +77,21 @@ restarted.recover_wrapper_states()
 assert restarted.owner_queue_paused("owner2") is True
 assert restarted.get(a)["status"] == "QUEUED"
 
+scheduled = project("owner1", 33)
+scheduled["privacy_status"] = "public"
+scheduled["publish_at"] = "2099-01-01T20:00:00Z"
+scheduled_id = restarted.create_project(scheduled)
+assert restarted.get(scheduled_id)["publish_at"] == scheduled["publish_at"]
+try:
+    restarted.edit_waiting_metadata(
+        scheduled_id, "owner1", title="Updated title", description="Safe",
+        tags="", category_id="22", privacy_status="private")
+except ValueError as exc:
+    assert "Public" in str(exc), exc
+else:
+    raise AssertionError("Scheduled public release privacy downgrade was admitted")
+assert restarted.get(scheduled_id)["privacy_status"] == "public"
+
 class DB:
     def __init__(self, path):
         self.path = path
