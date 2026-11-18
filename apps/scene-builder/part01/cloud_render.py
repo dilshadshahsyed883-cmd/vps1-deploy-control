@@ -572,20 +572,21 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
     app.router.add_event_handler("startup", manager.production.start)
     app.router.add_event_handler("shutdown", manager.production.close)
 
-    def admin(req):
+    def owner(req):
         require_login(req)
-        require_admin(req)
+        return owner_name(req.session.get("username"))
 
     def csrf(req):
-        admin(req)
+        account_owner = owner(req)
         expected = str(req.session.get("cloud_render_csrf") or "")
         actual = str(req.headers.get("X-Cloud-Render-CSRF") or "")
         if not expected or not hmac.compare_digest(expected,actual):
             raise HTTPException(403, "Cloud Render CSRF token required")
+        return account_owner
 
     @app.get("/cloud-render/",response_class=HTMLResponse)
     def home(request: Request):
-        admin(request)
+        owner(request)
         if not request.session.get("cloud_render_csrf"):
             request.session["cloud_render_csrf"] = secrets.token_urlsafe(32)
         return templates.TemplateResponse(request, "cloud_render.html",
@@ -595,12 +596,12 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
 
     @app.get("/api/cloud-render/config")
     def config(request: Request):
-        admin(request); return manager.config()
+        owner(request); return manager.config(owner(request))
 
     @app.post("/api/cloud-render/config")
     async def save(request: Request):
         csrf(request)
-        return manager.save(await request.json())
+        return manager.save(await request.json(), owner(request))
 
     @app.post("/api/cloud-render/token/rotate")
     def token_rotate(request: Request):
@@ -608,20 +609,20 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
 
     @app.post("/api/cloud-render/gpu/test")
     def gpu_test(request: Request):
-        csrf(request); return manager.probe()
+        csrf(request); return manager.probe(owner(request))
 
     @app.post("/api/cloud-render/gpu/connect")
     def gpu_connect(request: Request):
-        csrf(request); return manager.probe(connect=True)
+        csrf(request); return manager.probe(owner(request), connect=True)
 
     @app.post("/api/cloud-render/gpu/disconnect")
     def gpu_disconnect(request: Request):
-        csrf(request); return manager.disconnect()
+        csrf(request); return manager.disconnect(owner(request))
 
     @app.get("/api/cloud-render/production")
     def production(request: Request):
-        admin(request)
-        return manager.production.snapshot()
+        owner(request)
+        return manager.production.snapshot(owner(request))
 
     @app.post("/api/cloud-render/production/scan")
     async def production_scan(request: Request):
@@ -632,41 +633,41 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
             raise HTTPException(400, "A Drive link is required.") from None
         if not isinstance(payload, dict):
             raise HTTPException(400, "A Drive link is required.")
-        return await run_in_threadpool(manager.production.scan, payload.get("link"))
+        return await run_in_threadpool(manager.production.scan, payload.get("link"), owner(request))
 
     @app.post("/api/cloud-render/production/queue/{action}")
     def production_control(request: Request, action: str):
         csrf(request)
-        return manager.production.control(action)
+        return manager.production.control(action, owner(request))
 
     @app.post("/api/cloud-render/production/jobs/{job}/{action}")
     def production_action(request: Request, job: int, action: str):
         csrf(request)
-        return manager.production.action(job, action)
+        return manager.production.action(job, action, owner(request))
 
     @app.get("/api/cloud-render/media")
     def list_media(request: Request):
-        admin(request); return manager.listing()
+        owner(request); return manager.listing(owner(request))
 
     @app.post("/api/cloud-render/media/{job}/rename")
     async def rename(request: Request,job: str):
         csrf(request); obj=await request.json()
-        return manager.rename(job,obj.get("name",""))
+        return manager.rename(job,obj.get("name",""),owner(request))
 
     @app.post("/api/cloud-render/media/{job}/drive")
     def upload(request: Request,job: str):
-        csrf(request); return manager.queue(job)
+        csrf(request); return manager.queue(job,owner(request))
 
     @app.delete("/api/cloud-render/media/{job}")
     def delete(request: Request,job: str):
-        csrf(request); return manager.delete(job)
+        csrf(request); return manager.delete(job,owner(request))
 
     @app.get("/api/cloud-render/media/{job}/file")
     def download(request: Request,job: str):
-        admin(request)
+        owner(request)
         local = manager.local(job)
         with manager.connection() as con:
-            row = con.execute("SELECT name,state FROM files WHERE id=?",(job,)).fetchone()
+            row = con.execute("SELECT name,state FROM files WHERE id=? AND owner_username=?",(job,owner(request))).fetchone()
         if not row or row["state"] not in ("ready","failed","queued") or not local.is_file() or local.is_symlink():
             raise HTTPException(404,"Local MP4 unavailable")
         return FileResponse(local,media_type="video/mp4",filename=row["name"],content_disposition_type=("attachment" if request.query_params.get("download") == "1" else "inline"),
