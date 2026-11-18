@@ -121,9 +121,10 @@ jobs:
           shell=read('http://127.0.0.1:18080/static/vps1_native_site_shell.js')
           assert 'vps1-native-experiment-tabs' in shell
           experiment_nav=shell.split('const EXPERIMENT_NAV = Object.freeze([',1)[1].split(']);',1)[0]
-          for label in ('Antidetect Browser','Upload Studio','Cloud Render'):
-              assert '["'+label+'",' in experiment_nav
-          for label in ('Auto Script','Self Media Library','Video Studio'):
+          assert '["Concat", "/cloud-render/", "cloud-render"]' in experiment_nav
+          for label in ('Auto Script','Self Media Library','Video Studio',
+                        'Antidetect Browser','Upload Studio','HeyGen Studio',
+                        'Voice Clone','Imagen'):
               assert '["'+label+'",' not in experiment_nav
           assert 'vps1-native-nav-backdrop' in shell
           assert 'aria-expanded' in shell and 'setMenuOpen(false)' in shell
