@@ -872,14 +872,19 @@ def login(request: Request, username: str = Form(...), secret_key: str = Form(..
         )
     with db() as conn:
         conn.execute("UPDATE users SET last_login_at=? WHERE username=? COLLATE NOCASE", (now_iso(), row["username"]))
+    # Re-login invalidates a previous Concat handoff before rotating Scene cookie.
+    with db() as conn:
+        _concat_sso.revoke_session(conn, request.session)
     request.session.clear()
     request.session["authenticated"] = True
     request.session["username"] = row["username"]
     request.session["is_admin"] = bool(row["is_admin"])
     request.session["app_access"] = "all"
     request.session["studio_access"] = allowed_studios(user_account(str(row["username"])))
-    with db() as conn:
-        _concat_sso.start_session(conn, request.session, str(row["username"]))
+    # Keep legacy Scene account semantics; disallow ownerless SSO only.
+    if _concat_sso.eligible_username(str(row["username"])):
+        with db() as conn:
+            _concat_sso.start_session(conn, request.session, str(row["username"]))
     return RedirectResponse(safe_login_target(next), status_code=303)
 
 
