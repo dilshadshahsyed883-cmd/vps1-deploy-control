@@ -1,4 +1,4 @@
-"""Admin-only Cloud Render receiver, Media management and isolated SaladCloud config.
+"""Owner-isolated Cloud Render receiver, Media and SaladCloud configuration.
 
 Safe contract: authenticated admin manages media; a separate rotating receiver token
 permits chunked Salad output ingress. Local MP4 removal only follows successful

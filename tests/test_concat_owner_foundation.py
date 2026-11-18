@@ -74,6 +74,20 @@ class ConcatOwnerMigration(unittest.TestCase):
                              VALUES('render-alice-dup','drive-a','third.zip','','88','','folder',
                                     'gdrive:folder/third.zip','alice')""")
 
+    def test_empty_schema_migration_preserves_existing_indexes(self):
+        self.con.execute("DELETE FROM files")
+        self.con.execute("DELETE FROM production_jobs")
+        self.con.execute("CREATE INDEX production_custom_name ON production_jobs(name)")
+        migrate_files(self.con)
+        migrate_production(self.con)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM files").fetchone()[0], 0)
+        self.assertEqual(self.con.execute("SELECT COUNT(*) FROM production_jobs").fetchone()[0], 0)
+        self.assertIsNotNone(self.con.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND name='production_custom_name'").fetchone())
+        migrate_files(self.con)
+        migrate_production(self.con)
+
     def test_owners_have_independent_paused_queues_and_secret_config(self):
         migrate_production(self.con)
         self.assertEqual(queue_state(self.con, "alice"), "stopped")

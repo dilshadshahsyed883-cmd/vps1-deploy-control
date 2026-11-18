@@ -53,6 +53,15 @@ def migrate_production(con: sqlite3.Connection) -> None:
         if idx[2] and [r[2] for r in con.execute("PRAGMA index_info(" + '"' + idx[1].replace('"', '""') + '"' + ")")] == ["drive_id"]:
             single_drive_unique = True
     if single_drive_unique:
+        preserved = [(r[0], r[1]) for r in con.execute("""
+            SELECT type, sql FROM sqlite_master
+            WHERE tbl_name='production_jobs' AND type IN ('index','trigger')
+              AND sql IS NOT NULL ORDER BY type, name""").fetchall()]
+        for kind, ddl in preserved:
+            if kind == "index" and "UNIQUE" in ddl.upper() and "DRIVE_ID" in ddl.upper():
+                raise RuntimeError("Custom unique Drive ID index requires migration review")
+        oldseq = con.execute("SELECT seq FROM sqlite_sequence WHERE name='production_jobs'").fetchone()
+        old_sequence = int(oldseq[0]) if oldseq else 0
         con.execute("""CREATE TABLE production_jobs_owner_v2(
             id INTEGER PRIMARY KEY AUTOINCREMENT, remote_id TEXT NOT NULL UNIQUE,
             drive_id TEXT NOT NULL, name TEXT NOT NULL, resource_keys TEXT NOT NULL,
@@ -78,6 +87,11 @@ def migrate_production(con: sqlite3.Connection) -> None:
             raise RuntimeError("Production migration row-count verification failed")
         con.execute("DROP TABLE production_jobs")
         con.execute("ALTER TABLE production_jobs_owner_v2 RENAME TO production_jobs")
+        for kind, ddl in preserved:
+            con.execute(ddl)
+        if old_sequence:
+            con.execute("UPDATE sqlite_sequence SET seq=MAX(seq, ?) WHERE name='production_jobs'",
+                        (old_sequence,))
     con.execute("CREATE INDEX IF NOT EXISTS production_owner_state_idx ON production_jobs(owner_username,state,id)")
     con.execute("CREATE UNIQUE INDEX IF NOT EXISTS production_owner_drive_idx ON production_jobs(owner_username,drive_id)")
     con.execute("""CREATE TABLE IF NOT EXISTS production_owner_queues(
