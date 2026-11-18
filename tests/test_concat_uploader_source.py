@@ -62,6 +62,16 @@ class ConcatUploaderSourceTests(unittest.TestCase):
         self.assertEqual(digest, self.sha)
         self.assertEqual(Path(staged).read_bytes(), BYTES)
 
+    def test_private_copy_does_not_change_when_cloud_original_is_rewritten(self):
+        staged, _, _, _ = self.submit()
+        stage_file = Path(staged)
+        original = self.media / (VIDEO_ID + ".mp4")
+        original.write_bytes(BYTES.replace(b"verified-frame", b"changed-frame"))
+        self.assertEqual(stage_file.read_bytes(), BYTES)
+        self.assertNotEqual(original.read_bytes(), BYTES)
+        self.assertEqual(stage_file.stat().st_nlink, 1)
+        self.assertEqual(original.stat().st_nlink, 1)
+
     def test_other_owner_denied_even_if_admin_like_username(self):
         for username in ("owner2", "admin"):
             with self.subTest(username=username):
