@@ -11,6 +11,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import sqlite3
 import uuid
 from pathlib import Path
@@ -61,12 +62,12 @@ def _owned_verified_file(con: sqlite3.Connection, job: str, owner: str) -> dict:
 
 def stage_concat_link(link: str, owner: str, staging_root: Path, *,
                       cloud_root: Path, origin: str = "https://app.scenebuilder.online") -> tuple[str, str, int, str]:
-    """Return (staging_path, media_name, byte_count, verified_sha256).
+    """Return a *private copy* (path, media_name, byte_count, SHA-256).
 
-    A hardlink pins the immutable source inode against Cloud Render's subsequent
-    canonical Drive cleanup without deleting/changing the Cloud original.
-    A byte-for-byte fallback is used on distinct filesystems. Both paths verify
-    the Cloud record's immutable SHA-256 before queue admission.
+    Never hardlink Cloud Render media into a YouTube worker. A hardlink shares
+    a mutable inode: even after a checksum passes, renderer/retention changes
+    to the original could silently change uploaded bytes. Copy, fsync, verify,
+    and leave the canonical Cloud Render / Drive original untouched.
     """
     job = parse_concat_link(link, origin=origin)
     if not owner or not str(owner).strip():
@@ -89,31 +90,43 @@ def stage_concat_link(link: str, owner: str, staging_root: Path, *,
         # Never treat a Drive URL/path as permission to fetch arbitrary content.
         raise ConcatSourceError("Local MP4 is unavailable; authorized Drive handoff is required")
     destination_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    expected_size = int(info["size"])
+    # Guard precious VPS storage. No staging job may exhaust the filesystem.
+    if shutil.disk_usage(destination_root).free < expected_size + 1024 * 1024 * 1024:
+        raise ConcatSourceError("Insufficient safe VPS staging capacity for this MP4")
     destination = destination_root / ("concat_" + uuid.uuid4().hex + ".mp4")
     try:
-        try:
-            os.link(source, destination, follow_symlinks=False)
-        except OSError:
-            fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
-            with source.open("rb") as inp, os.fdopen(fd, "wb") as out:
-                shutil.copyfileobj(inp, out, length=1024 * 1024)
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        source_fd = os.open(source, flags)
+        with os.fdopen(source_fd, "rb") as inp:
+            stat_info = os.fstat(inp.fileno())
+            if not stat.S_ISREG(stat_info.st_mode) or stat_info.st_size != expected_size:
+                raise ConcatSourceError("Cloud Render media changed before secure handoff")
+            if inp.read(8)[4:8] != b"ftyp":
+                raise ConcatSourceError("Cloud Render video is not an MP4")
+            inp.seek(0)
+            fd = os.open(destination,
+                         os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                         0o600)
+            digest = hashlib.sha256()
+            total = 0
+            with os.fdopen(fd, "wb") as out:
+                while True:
+                    chunk = inp.read(4 * 1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > expected_size:
+                        raise ConcatSourceError("Cloud Render media size changed")
+                    digest.update(chunk)
+                    out.write(chunk)
                 out.flush()
                 os.fsync(out.fileno())
-        if destination.is_symlink() or not destination.is_file():
-            raise ConcatSourceError("Media handoff could not be verified")
-        size = destination.stat().st_size
-        if size != int(info["size"]):
+        if total != expected_size or destination.stat().st_size != expected_size:
             raise ConcatSourceError("Cloud Render media size changed")
-        digest = hashlib.sha256()
-        with destination.open("rb") as f:
-            if f.read(8)[4:8] != b"ftyp":
-                raise ConcatSourceError("Cloud Render video is not an MP4")
-            f.seek(0)
-            for chunk in iter(lambda: f.read(4 * 1024 * 1024), b""):
-                digest.update(chunk)
         if digest.hexdigest().lower() != str(info["sha256"]).lower():
             raise ConcatSourceError("Cloud Render media checksum changed")
-        return str(destination), str(info["name"]), size, digest.hexdigest()
+        return str(destination), str(info["name"]), total, digest.hexdigest()
     except BaseException:
         destination.unlink(missing_ok=True)
         raise
