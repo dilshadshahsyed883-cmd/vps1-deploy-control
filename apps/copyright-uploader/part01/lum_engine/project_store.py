@@ -192,6 +192,13 @@ class ProjectStore:
             raise ValueError("Invalid visibility")
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+                current = conn.execute(
+                    "SELECT publish_at FROM projects WHERE id=? AND owner_username=? COLLATE NOCASE",
+                    (int(project_id), owner),
+                ).fetchone()
+                if current and str(current["publish_at"] or "").strip() and privacy_status != "public":
+                    raise ValueError("Scheduled Concat YouTube releases must remain Public; cancel and recreate to change the schedule")
             cursor = conn.execute("""
                 UPDATE projects SET title=?,description=?,tags=?,category_id=?,
                     privacy_status=?,updated_at=?
