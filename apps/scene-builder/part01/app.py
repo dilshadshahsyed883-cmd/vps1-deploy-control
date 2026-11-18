@@ -671,13 +671,13 @@ def app_access_allows(account: dict[str, Any] | None, app_name: str) -> bool:
 
 
 
-# Four independent public Studio groups are configurable per user.
+# Independent Studio groups remain configurable; Concat grants self-owner access to every active Scene user.
 # The pre-existing app_access column is retained for legacy integrations.
-STUDIO_KEYS = ("song", "short", "copyright", "voice")
+STUDIO_KEYS = ("song", "short", "copyright", "voice", "concat")
 STUDIO_SSO_APPS = {
     "song-maker": "song", "short-maker": "short", "video-merger": "copyright",
     "short-uploader": "short", "copyright-uploader": "copyright",
-    "voice-studio": "voice",
+    "voice-studio": "voice", "concat-uploader": "concat",
 }
 
 
@@ -690,9 +690,9 @@ def allowed_studios(account: dict[str, Any] | None) -> tuple[str, ...]:
     # Migration-safe: do not revoke existing user access.
     if stored is None:
         # Old accounts keep their prior 3 Studio grants; Voice is opt-in.
-        return ("song", "short", "copyright")
+        return ("song", "short", "copyright", "concat")
     selected = {item.strip() for item in str(stored).split(",")}
-    return tuple(item for item in STUDIO_KEYS if item in selected)
+    return tuple(item for item in STUDIO_KEYS if item in selected or item == "concat")
 
 
 def studio_access_allows(account: dict[str, Any] | None, studio: str) -> bool:
@@ -706,6 +706,7 @@ def studio_for_path(path: str) -> str:
     if normalized.startswith("/voice-studio/service/tts/api/audio-downloader"):
         return "song"
     for studio, prefixes in (
+        ("concat", ("/concat-studio", "/cloud-render", "/api/cloud-render")),
         ("song", ("/song-studio", "/song-uploader", "/song-maker", "/audio-downloader")),
         ("short", ("/short-maker", "/short-uploader", "/short-studio")),
         ("copyright", ("/video-merger", "/copyright-uploader", "/copyright-studio")),
@@ -793,10 +794,6 @@ async def authentication(request: Request, call_next):
     studio = studio_for_path(request.url.path)
     if studio and not studio_access_allows(account, studio):
         return Response(status_code=403, content="Studio access not granted")
-    if (request.url.path.rstrip("/") == "/cloud-render" or
-            request.url.path.rstrip("/") == "/concat-studio/concat" or
-            request.url.path.startswith("/api/cloud-render/")) and not account.get("is_admin"):
-        return Response(status_code=403, content="Administrator access required")
     # HeyGen is an owner-scoped Studio: the active session checked above is
     # sufficient. Config, jobs and output remain bound to session username;
     # do not apply the unrelated admin-only Cloud Render/Experiment policy.
@@ -828,7 +825,6 @@ def concat_studio_home(request: Request):
 @app.get("/concat-studio/concat/")
 def concat_studio_concat(request: Request):
     require_login(request)
-    require_admin(request)
     return RedirectResponse("/cloud-render/", status_code=303)
 
 from heygen_studio import register_heygen_studio
@@ -4884,7 +4880,7 @@ def auto_caption_auth(request: Request):
 SCENE_SSO_APP_IDS = frozenset({
     "short-maker", "short-stream", "self-media-library", "video-merger", "song-maker",
     "voice-studio", "auto-caption-studio", "local-upload-manager",
-    "short-uploader", "copyright-uploader",
+    "short-uploader", "copyright-uploader", "concat-uploader",
 })
 
 
@@ -4908,6 +4904,7 @@ def workspace_session_auth(request: Request, app: str = ""):
     admin = bool(account.get("is_admin"))
     access = "both" if admin else (
         "auto_caption" if app == "auto-caption-studio" else
+        "concat" if app == "concat-uploader" else
         "lum" if app in {"local-upload-manager", "short-uploader", "copyright-uploader"} else "scene_builder"
     )
     return Response(status_code=204, headers={
