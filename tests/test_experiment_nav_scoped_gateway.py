@@ -35,8 +35,6 @@ class ExperimentNavigationGatewayTests(unittest.TestCase):
         site.write_text("server {\nlocation / {\n    proxy_pass http://127.0.0.1:18080;\n}\n}\n")
         valid_js = (
             'const EXPERIMENT_NAV = Object.freeze([\n'
-            '["Antidetect Browser","/experiment-studio/antidetect-browser/","antidetect"],\n'
-            '["Upload Studio","/local-upload-manager/app","upload"],\n'
             '["Concat","/cloud-render/","cloud-render"]\n'
             ']);'
         )
