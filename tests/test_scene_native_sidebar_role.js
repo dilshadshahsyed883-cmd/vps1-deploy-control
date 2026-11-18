@@ -305,3 +305,37 @@ test("native sidebar drawer geometry and accessibility stay stable across every 
     assert.equal(h.nativeToggle().attrs["aria-expanded"],"false");
   }
 });
+
+test("Concat Studio has exactly two native links and is independent of Experiment", async () => {
+  const h=boot("concat-uploader",{authenticated:true,is_admin:false,username:"member",allowed_studios:[]},
+    "/concat-studio/concat-uploader/");
+  await h.tick();
+  const nav=all(h.body).find(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Applications");
+  const primary=nav.children.find(e=>e.href==="/concat-studio/");
+  assert.ok(primary);
+  assert.equal(primary.hidden,false);
+  assert.equal(primary.attrs["aria-current"],"page");
+  const tabs=all(h.body).find(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Concat Studio");
+  assert.ok(tabs);
+  assert.equal(tabs.hidden,false);
+  assert.deepEqual(tabs.children.map(e=>e.textContent),["Concat","Concat Uploader"]);
+  assert.deepEqual(tabs.children.map(e=>e.href),["/concat-studio/concat/","/concat-studio/concat-uploader/"]);
+  assert.equal(tabs.children[1].attrs["aria-current"],"page");
+  assert.equal(all(h.body).filter(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Experiment Studio").length,0);
+  await h.update(null);
+  assert.equal(primary.hidden,true);
+  assert.equal(tabs.hidden,true);
+});
+
+test("old Cloud Render URL selects Concat Studio without duplicate tabs", async () => {
+  const h=boot("uploader",{authenticated:true,is_admin:true,username:"owner"},"/cloud-render/");
+  await h.tick();
+  const tabs=all(h.body).filter(e=>e.tag==="nav"&&e.attrs["aria-label"]==="Concat Studio");
+  assert.equal(tabs.length,1);
+  assert.equal(tabs[0].children[0].attrs["aria-current"],"page");
+  assert.equal(tabs[0].hidden,false);
+  h.toggleMenu();
+  assert.equal(h.isMenuOpen(),true);
+  h.clickNavigation();
+  assert.equal(h.isMenuOpen(),false);
+});
