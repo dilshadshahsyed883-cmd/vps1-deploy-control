@@ -127,7 +127,7 @@ print("PASS Concat owner queue, persisted pause, dedup, admin parity")
         }.items():
             with self.subTest(name=name):
                 parse(source)
-        self.assertIn('"concat"','{"song","shortstudio","copyright","concat"}')
+        self.assertIn('{"song","shortstudio","copyright","concat"}', standalone)
         self.assertIn('"concat"', standalone)
         self.assertIn('only_video_id', core_db)
         self.assertIn('only_video_id', core_worker)
