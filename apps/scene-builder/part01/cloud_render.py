@@ -162,7 +162,7 @@ class CloudRender:
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('receiver_token',?)",
                         (secrets.token_urlsafe(48),))
             con.execute("UPDATE files SET state='failed',error='Interrupted Drive transfer; retry' WHERE state='uploading'")
-            pending = [r["id"] for r in con.execute("SELECT id FROM files WHERE state='queued'")]
+            pending = [r["id"] for r in con.execute("SELECT id FROM files WHERE state='queued' AND owner_username<>''")]
         self.path.chmod(0o600)
         self.production = ProductionQueue(self, self.production_worker)
         for job in pending:
