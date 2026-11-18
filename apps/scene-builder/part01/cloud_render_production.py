@@ -469,14 +469,24 @@ class ProductionQueue:
             active = con.execute("""SELECT * FROM production_jobs
                 WHERE owner_username<>'' AND state NOT IN ('Completed','Failed','Cancelled','Queued')
                 ORDER BY id""").fetchall()
-            limit = int(self.media.get(con, "render_concurrency") or "1")
+            # Shared worker capacity remains operator-managed, never controlled by
+            # one owner's GPU Config. Each owner's requested parallelism is only
+            # an upper bound on their own active projects.
+            limit = max(1, min(2, int(self.media.get(con, "render_concurrency") or "1")))
             row = None
             if len(active) < limit:
-                row = con.execute("""SELECT p.* FROM production_jobs p
+                candidates = con.execute("""SELECT p.* FROM production_jobs p
                     JOIN production_owner_queues q ON q.owner_username=p.owner_username
-                    WHERE p.state='Queued' AND q.state='running' ORDER BY p.id LIMIT 1""").fetchone()
-                if row is not None:
-                    con.execute("UPDATE production_jobs SET state='Downloading' WHERE id=?", (row["id"],))
+                    WHERE p.state='Queued' AND p.owner_username<>'' AND q.state='running'
+                    ORDER BY p.id""").fetchall()
+                for candidate in candidates:
+                    own_active = sum(item["owner_username"] == candidate["owner_username"] for item in active)
+                    own_limit = max(1, min(2, int(self.media.get(
+                        con, "render_concurrency", candidate["owner_username"]) or "1")))
+                    if own_active < own_limit:
+                        row = candidate
+                        con.execute("UPDATE production_jobs SET state='Downloading' WHERE id=?", (row["id"],))
+                        break
             if row is None and active:
                 row = active[self.observation_cursor % len(active)]
                 self.observation_cursor += 1
