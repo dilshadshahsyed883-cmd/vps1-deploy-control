@@ -31,12 +31,38 @@ else:
 # Concat must be a distinct trusted process, never a mode alias sharing LUM
 # or Copyright's secrets, SQLite queue, OAuth vault, or session cookies.
 if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+    forbidden = {
+        Path("/var/lib/local-upload-manager"),
+        Path("/var/lib/lum-copyright"),
+        Path("/var/lib/copyright-uploader"),
+    }
     if (not os.environ.get("LUM_DATA_DIR")
             or not DATA_ROOT.is_absolute()
-            or DATA_ROOT.resolve() == Path("/var/lib/local-upload-manager")
+            or DATA_ROOT.is_symlink()
+            or DATA_ROOT.resolve() in forbidden
+            or DATA_ROOT.name.casefold() in {"lum-copyright", "lum1", "copyright-uploader"}
             or BASE_PATH != "/concat-studio/concat-uploader"
             or not SUITE_AUTH_ENABLED):
-        raise RuntimeError("Concat Uploader requires an isolated data root, canonical base path and trusted Scene SSO")
+        raise RuntimeError("Concat Uploader requires a dedicated data root, canonical base path and trusted Scene SSO")
+    # Fail closed rather than silently allowing an operator to point the shared
+    # desktop core at Copyright/Song's channel DB or owner-token vault.
+    if (os.environ.get("YOUTUBE_UPLOAD_MANAGER_DATA_DIR")
+            and Path(os.environ["YOUTUBE_UPLOAD_MANAGER_DATA_DIR"]).resolve()
+                != CORE_DATA_ROOT.resolve()):
+        raise RuntimeError("Concat YouTube core data must stay in its isolated instance root")
+    if (os.environ.get("LUM_GOOGLE_OAUTH_ROOT")
+            and Path(os.environ["LUM_GOOGLE_OAUTH_ROOT"]).resolve()
+                != SECURE_ROOT.resolve()):
+        raise RuntimeError("Concat OAuth state must stay in its isolated instance root")
+    if (os.environ.get("LUM_AUTO_ENGINE_V6_ROOT")
+            and Path(os.environ["LUM_AUTO_ENGINE_V6_ROOT"]).resolve()
+                != (DATA_ROOT / "auto_engine_v6").resolve()):
+        raise RuntimeError("Concat cannot share another Studio's Auto Engine state")
+    if any(p.is_symlink() for p in (CORE_DATA_ROOT, SECURE_ROOT, STAGING_ROOT)):
+        raise RuntimeError("Concat isolated storage directories must not be symlinks")
+    os.environ["YOUTUBE_UPLOAD_MANAGER_DATA_DIR"] = str(CORE_DATA_ROOT)
+    os.environ["LUM_GOOGLE_OAUTH_ROOT"] = str(SECURE_ROOT)
+    os.environ["LUM_AUTO_ENGINE_V6_ROOT"] = str(DATA_ROOT / "auto_engine_v6")
 
 # Reused desktop core stores all mutable state below this permanent VPS path.
 os.environ.setdefault("YOUTUBE_UPLOAD_MANAGER_DATA_DIR", str(CORE_DATA_ROOT))
