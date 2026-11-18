@@ -26,6 +26,19 @@
     b.addEventListener("click",action);
     return b;
   };
+  // Copy only an authenticated same-origin media reference; never embed a VPS path or token.
+  const copyMediaLink = async id => {
+    const url = new URL("/api/cloud-render/media/" + encodeURIComponent(id) + "/file", window.location.origin).href;
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        throw new Error("Clipboard unavailable. Open this page over HTTPS and allow clipboard access.");
+      }
+      await navigator.clipboard.writeText(url);
+      msg("Video link copied. Paste it into Concat Uploader (sign-in required).");
+    } catch (error) {
+      msg("Could not copy video link: " + (error.message || "clipboard permission denied"), true);
+    }
+  };
   let configured=false;
   let config={};
   async function loadConfig(){
@@ -80,6 +93,11 @@
       const actions=document.createElement("div");actions.className="cr-actions";
       const busy=["queued","uploading","receiving","verified"].includes(file.state);
       const local=["ready","failed","queued","uploading"].includes(file.state);
+      // The existing /file route only serves local, verified files in these states.
+      // Drive-delivered records no longer have a VPS copy, so never advertise a dead link.
+      if(["ready","failed","queued"].includes(file.state)){
+        actions.append(button("Copy Link",()=>copyMediaLink(file.id)));
+      }
       if(local){
         actions.append(button("Preview",()=>window.open("/api/cloud-render/media/"+encodeURIComponent(file.id)+"/file","_blank","noopener,noreferrer")));
         actions.append(button("Download",()=>{window.location.href="/api/cloud-render/media/"+encodeURIComponent(file.id)+"/file?download=1";}));
