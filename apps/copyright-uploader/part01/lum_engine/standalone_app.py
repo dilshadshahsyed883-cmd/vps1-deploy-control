@@ -106,7 +106,7 @@ from .auto_engine_v6 import (
 IS_COPYRIGHT = os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
 OWNER_SCOPED = IS_COPYRIGHT or os.getenv("LUM_ENGINE_INSTANCE") == "concat"
 app = FastAPI(title="Concat Uploader" if os.getenv("LUM_ENGINE_INSTANCE") == "concat" else "Copyright Uploader", version=BUILD, docs_url=None, redoc_url=None)
-v6_store = V6Store()
+v6_store = None if os.getenv("LUM_ENGINE_INSTANCE") == "concat" else V6Store()
 app.mount(route("/static"), StaticFiles(directory=str(STATIC_ROOT)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATE_ROOT))
 templates.env.globals["base_path"] = BASE_PATH
