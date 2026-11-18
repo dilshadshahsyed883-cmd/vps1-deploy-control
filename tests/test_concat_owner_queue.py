@@ -130,6 +130,49 @@ print("PASS Concat owner queue, persisted pause, dedup, admin parity")
             self.assertEqual(done.returncode, 0, done.stdout + "\n" + done.stderr)
             self.assertIn("PASS Concat", done.stdout)
 
+    def test_concat_rejects_shared_core_and_oauth_storage(self):
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            common = {
+                "LUM_ENGINE_INSTANCE": "concat",
+                "LUM_DATA_DIR": str(base / "concat-only"),
+                "LUM_BASE_PATH": "/concat-studio/concat-uploader",
+                "LUM_SUITE_AUTH": "1",
+                "PYTHONPATH": str(UPLOADER),
+            }
+            for name, value in (
+                ("YOUTUBE_UPLOAD_MANAGER_DATA_DIR", str(base / "copyright/core")),
+                ("LUM_GOOGLE_OAUTH_ROOT", str(base / "copyright/secure")),
+                ("LUM_AUTO_ENGINE_V6_ROOT", str(base / "copyright/auto_engine_v6")),
+            ):
+                with self.subTest(name=name):
+                    env = os.environ.copy()
+                    for stale in ("YOUTUBE_UPLOAD_MANAGER_DATA_DIR",
+                                  "LUM_GOOGLE_OAUTH_ROOT", "LUM_AUTO_ENGINE_V6_ROOT"):
+                        env.pop(stale, None)
+                    env.update(common)
+                    env[name] = value
+                    run = subprocess.run(
+                        [sys.executable, "-c", "import lum_engine.config"],
+                        env=env, cwd=ROOT, capture_output=True, text=True, timeout=15,
+                    )
+                    self.assertNotEqual(run.returncode, 0)
+                    self.assertIn("Concat", run.stderr)
+
+            for folder in ("lum-copyright", "lum1"):
+                with self.subTest(folder=folder):
+                    env = os.environ.copy()
+                    env.update(common, LUM_DATA_DIR=str(base / folder))
+                    for stale in ("YOUTUBE_UPLOAD_MANAGER_DATA_DIR",
+                                  "LUM_GOOGLE_OAUTH_ROOT", "LUM_AUTO_ENGINE_V6_ROOT"):
+                        env.pop(stale, None)
+                    run = subprocess.run(
+                        [sys.executable, "-c", "import lum_engine.config"],
+                        env=env, cwd=ROOT, capture_output=True, text=True, timeout=15,
+                    )
+                    self.assertNotEqual(run.returncode, 0)
+                    self.assertIn("Concat", run.stderr)
+
     def test_selected_core_video_only_and_channels_reuse(self):
         from ast import parse
         standalone = (UPLOADER / "lum_engine/standalone_app.py").read_text()
