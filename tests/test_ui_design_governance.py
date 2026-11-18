@@ -12,13 +12,12 @@ class UnifiedUiGovernanceTests(unittest.TestCase):
     def test_current_shared_shell_and_apps_match_approved_source_contract(self):
         self.assertEqual([], violations(self.sources))
 
-    def test_all_four_model_studios_are_required_with_stable_routes(self):
-        for label in ("Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
-            modified = dict(self.sources)
-            modified["shell_js"] = modified["shell_js"].replace(
-                f'["{label}",', f'["disabled-{label}",', 1)
-            issues = violations(modified)
-            self.assertTrue(any(label in issue for issue in issues), (label, issues))
+    def test_concat_is_the_only_approved_visible_experiment_studio(self):
+        modified = dict(self.sources)
+        modified["shell_js"] = modified["shell_js"].replace(
+            '["Concat",', '["disabled-Concat",', 1)
+        issues = violations(modified)
+        self.assertTrue(any("Concat" in issue for issue in issues), issues)
 
     def test_hidden_experiment_navigation_regression_is_blocked(self):
         modified = dict(self.sources)
@@ -50,13 +49,12 @@ class UnifiedUiGovernanceTests(unittest.TestCase):
         issues = violations(modified)
         self.assertTrue(any("tab height" in message for message in issues), issues)
 
-    def test_upload_studio_duplicate_group_regression_is_blocked(self):
+    def test_hidden_upload_studio_keeps_direct_route_controls(self):
         modified = dict(self.sources)
         modified["shell_js"] = modified["shell_js"].replace(
-            '["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"]',
-            '["Auto Uploader", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"]')
+            'addLink(tabs, "Auto Uploader"', 'addLink(tabs, "Unavailable Uploader"', 1)
         issues = violations(modified)
-        self.assertTrue(any("combined Upload Studio" in message for message in issues), issues)
+        self.assertTrue(any("Auto Uploader primary tab" in message for message in issues), issues)
 
     def test_unversioned_or_missing_video_geometry_is_blocked(self):
         modified = dict(self.sources)
