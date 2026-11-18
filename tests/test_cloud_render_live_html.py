@@ -48,7 +48,7 @@ class CloudRenderHtmlTest(unittest.TestCase):
         self.assertIn("text/html",res.headers.get("content-type",""))
         for marker in ("Concat", "GPU Config", "Media", 'data-tab="gpu"', 'data-tab="media"'):
             self.assertIn(marker,res.text)
-        self.assertIn('href="/cloud-render/"',res.text)
+        self.assertIn('href="/concat-studio/concat/"',res.text)
         tabs = re.findall(r'data-tab="([^"]+)" aria-selected="(true|false)"', res.text)
         self.assertEqual(tabs, [("production", "true"), ("media", "false"), ("gpu", "false")])
         self.assertIn('id="cr-media" hidden', res.text)
@@ -59,7 +59,7 @@ class CloudRenderHtmlTest(unittest.TestCase):
         self.assertNotIn('<nav data-video-studio-subnav="1"', res.text)
         self.assertNotIn('<h1>Concat</h1>', res.text)
         self.assertEqual(res.text.count('id="cloud-heading"'), 1)
-        self.assertIn('href="/cloud-render/">Concat</a>', res.text)
+        self.assertIn('href="/concat-studio/concat/">Concat</a>', res.text)
         self.assertNotIn('class="active" aria-current="page" href="/scene-builder/">Video Studio</a>', res.text)
         cfg = self.client.get("/api/cloud-render/config")
         self.assertEqual(cfg.status_code,200)

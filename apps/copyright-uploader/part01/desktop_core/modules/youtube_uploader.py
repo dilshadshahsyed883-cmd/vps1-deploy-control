@@ -339,6 +339,7 @@ class YouTubeUploader:
         exclude_auto_engine: bool = False,
         wait_for_future_schedules: bool = True,
         recovery_only: bool = False,
+        only_video_id: int | None = None,
     ) -> None:
         """Process queue jobs with a rolling concurrency window.
 
@@ -356,10 +357,11 @@ class YouTubeUploader:
                     # Do not start new work after Stop is requested. Existing
                     # uploads receive stop_check and exit at their safe checkpoint.
                     if not stopping:
-                        self.db.activate_due_scheduled_jobs(
-                            auto_engine_only=auto_engine_only,
-                            exclude_auto_engine=exclude_auto_engine,
-                        )
+                        if only_video_id is None:
+                            self.db.activate_due_scheduled_jobs(
+                                auto_engine_only=auto_engine_only,
+                                exclude_auto_engine=exclude_auto_engine,
+                            )
                         free_slots = workers - len(active)
                         if free_slots > 0:
                             claimed = self.db.claim_available_jobs(
@@ -368,6 +370,7 @@ class YouTubeUploader:
                                 auto_engine_only=auto_engine_only,
                                 exclude_auto_engine=exclude_auto_engine,
                                 recovery_only=recovery_only,
+                                **({"only_video_id": only_video_id} if only_video_id is not None else {}),
                             )
                             for item in claimed:
                                 future = executor.submit(
@@ -396,7 +399,7 @@ class YouTubeUploader:
                     if stopping:
                         return
 
-                    future = self.db.next_scheduled_upload_at(
+                    future = None if only_video_id is not None else self.db.next_scheduled_upload_at(
                         auto_engine_only=auto_engine_only,
                         exclude_auto_engine=exclude_auto_engine,
                     )
@@ -410,6 +413,7 @@ class YouTubeUploader:
                         auto_engine_only=auto_engine_only,
                         exclude_auto_engine=exclude_auto_engine,
                         recovery_only=recovery_only,
+                        **({"only_video_id": only_video_id} if only_video_id is not None else {}),
                     ):
                         # Jobs may temporarily be blocked by a live lease or by
                         # same-channel protection. Recheck without ending worker.

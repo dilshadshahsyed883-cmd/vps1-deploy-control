@@ -63,6 +63,15 @@ class MediaUploadStage:
                 "selfDeclaredMadeForKids": ctx.job.made_for_kids,
             },
         }
+        # YouTube requires private + publishAt for scheduled PUBLIC releases.
+        # Concat only: preserve the legacy uploader behavior of other studios.
+        import os
+        if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+            publish_at = str(ctx.job.raw.get("publish_at") or "").strip()
+            if publish_at:
+                if body["status"]["privacyStatus"] != "private":
+                    raise ValueError("Scheduled upload must be private until publication")
+                body["status"]["publishAt"] = publish_at
         ctx.media_handle = ctx.media_upload_factory(
             str(video_path),
             chunksize=8 * 1024 * 1024,

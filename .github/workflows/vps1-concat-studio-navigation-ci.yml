@@ -1,0 +1,48 @@
+name: VPS1 Concat Studio navigation tests (no deployment)
+
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/templates/base.html'
+      - 'apps/scene-builder/part01/templates/cloud_render.html'
+      - 'apps/scene-builder/part01/static/vps1_native_site_shell.*'
+      - 'tests/test_concat_studio_navigation.py'
+      - 'tests/test_scene_native_sidebar_role.js'
+      - 'tests/test_cloud_render_live_html.py'
+      - 'tests/test_cloud_render_v1.py'
+      - 'tests/test_experiment_four_studio_layout.py'
+      - 'tests/test_experiment_auto_script_navigation.py'
+      - 'tests/test_experiment_nav_scoped_gateway.py'
+      - 'production/test_unified_sidebar_navigation.py'
+      - 'production/gateway.py'
+      - '.github/workflows/vps1-concat-studio-navigation-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  navigation-security-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test-only imports
+        run: python -m pip install "jinja2>=3,<4"
+      - name: Syntax check shared shell and aliases
+        run: |
+          node --check apps/scene-builder/part01/static/vps1_native_site_shell.js
+          python -m py_compile apps/scene-builder/part01/app.py production/gateway.py tests/test_concat_studio_navigation.py
+      - name: Native sidebar role, routing and mobile behavior
+        run: node --test tests/test_scene_native_sidebar_role.js
+      - name: Legacy shell, studio links, bookmarks and session gates
+        run: |
+          python -m unittest -v \
+            tests.test_concat_studio_navigation \
+            production.test_unified_sidebar_navigation \
+            tests.test_experiment_auto_script_navigation \
+            tests.test_experiment_four_studio_layout \
+            tests.test_experiment_nav_scoped_gateway

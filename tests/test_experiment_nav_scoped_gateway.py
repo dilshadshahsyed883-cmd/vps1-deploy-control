@@ -68,6 +68,20 @@ class ExperimentNavigationGatewayTests(unittest.TestCase):
             self.assertEqual(proof["scene"], "SCOPED_NAVIGATION_VERIFIED")
             self.assertEqual(original, site.read_bytes())
 
+    def test_new_concat_studio_registry_is_accepted_without_nginx_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, site, js = self.fixture(directory)
+            js = js.replace('["Concat","/cloud-render/","cloud-render"]',
+                            '["HeyGen Studio","/heygen-studio/","heygen"]')
+            js += ('\nconst CONCAT_NAV = Object.freeze(['
+                   '["Concat","/concat-studio/concat/","concat-render"],'
+                   '["Concat Uploader","/concat-studio/concat-uploader/","concat-uploader"]'
+                   ']);')
+            original = site.read_bytes()
+            proof = self.verify(root, site, js)
+            self.assertEqual(proof["scene"], "SCOPED_NAVIGATION_VERIFIED")
+            self.assertEqual(site.read_bytes(), original)
+
     def test_hidden_menu_regression_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root, site, js = self.fixture(directory)

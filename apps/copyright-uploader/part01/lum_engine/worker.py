@@ -9,6 +9,10 @@ from .config import THUMBNAIL_ROOT, STAGING_ROOT, ensure_dirs
 from .copyright_handoff import delete_verified_source, delete_verified_merger_output
 from .drive_source import cleanup_project_staging, stage_drive_file
 from .project_store import ProjectStore, now_iso
+from .studio_tenants import StudioTenants
+from datetime import timedelta
+from datetime import datetime, timezone
+import os
 from .remote_verify import verify_youtube_video
 from desktop_core.modules.auth_manager import AuthManager
 from desktop_core.modules.database import Database
@@ -136,9 +140,31 @@ class VPSUploadWorker:
             self.store.event(project_id, f"Drive source staged and verified: {staging.name} ({staging.stat().st_size} bytes)")
         project = self.store.get(project_id) or project
 
-        # 2) Materialize exactly one core queue row. Other VPS projects remain in wrapper WAITING_SLOT.
+        # 2) One owner-bound wrapper may claim exactly one core video row.
+        concat = os.getenv("LUM_ENGINE_INSTANCE") == "concat"
         core_video_id = int(project.get("core_video_id") or 0)
+        if concat and project.get("publish_at") and str(project.get("privacy_status") or "").lower() != "public":
+            raise RuntimeError("Scheduled Concat release visibility changed; only Public can be scheduled")
+        if concat:
+            # Re-check at execution time: a channel may have been revoked since admission.
+            StudioTenants(self.db).require(
+                "channel", int(project["channel_db_id"]),
+                {"username": str(project["owner_username"]), "is_admin": 0},
+            )
+            if core_video_id <= 0:
+                # Crash may occur after core INSERT but before wrapper linkage is written.
+                # Reuse that exact staged path + channel instead of uploading twice.
+                core_video_id = self.db.video_id_for_staged_path(
+                    str(staging), int(project["channel_db_id"]))
+                if core_video_id:
+                    self.store.update(project_id, core_video_id=core_video_id)
+                    self.store.event(project_id, f"Recovered existing core upload #{core_video_id}")
         if core_video_id <= 0:
+            if concat and project.get("publish_at"):
+                value = datetime.fromisoformat(str(project["publish_at"]).replace("Z", "+00:00"))
+                if value.tzinfo is None or value.astimezone(timezone.utc) <= datetime.now(timezone.utc) + timedelta(minutes=10):
+                    raise RuntimeError("Scheduled release is too close or passed; create a new upload with a future time")
+
             self.store.update(project_id, status="UPLOAD_QUEUED", progress=0)
             core_video_id = int(self.db.add_video({
                 "local_video_path": str(staging),
@@ -147,8 +173,8 @@ class VPSUploadWorker:
                 "description": project.get("description") or "",
                 "tags": project.get("tags") or "",
                 "category_id": project.get("category_id") or "22",
-                "privacy_status": project.get("privacy_status") or "private",
-                "publish_at": None,
+                "privacy_status": "private" if project.get("publish_at") else (project.get("privacy_status") or "private"),
+                "publish_at": (project.get("publish_at") or None),
                 "app_upload_at": None,
                 "made_for_kids": bool(project.get("made_for_kids")),
                 "playlist_id": project.get("playlist_id") or "",
@@ -164,20 +190,40 @@ class VPSUploadWorker:
             self.store.event(project_id, f"Core upload job #{core_video_id} created")
 
         core = self.db.get_video(core_video_id) or {}
+        if concat and project.get("publish_at") and str(core.get("status") or "") not in {
+                UploadStatus.UPLOADED.value, UploadStatus.PUBLISHED.value}:
+            scheduled = datetime.fromisoformat(str(project["publish_at"]).replace("Z", "+00:00"))
+            if (scheduled.tzinfo is None or
+                    scheduled.astimezone(timezone.utc) <= datetime.now(timezone.utc) + timedelta(minutes=10)):
+                self.store.update(project_id, status="PAUSED",
+                    error_message="Scheduled public release is no longer safely in the future; review and reschedule before retrying")
+                self.store.event(project_id, "Unsafe expired publishAt blocked before YouTube upload", "WARNING")
+                return
+        if concat and str(core.get("recovery_state") or "") == "REVIEW_REQUIRED":
+            self.store.update(project_id, status="PAUSED",
+                error_message="Remote upload outcome unknown; review YouTube Studio before authorizing retry")
+            self.store.event(project_id, "Recovery review required; automatic retry blocked", "WARNING")
+            return
         if str(core.get("status") or "") == UploadStatus.FAILED.value:
             self.db.queue_failed_for_retry(exclude_auto_engine=True, video_ids=[core_video_id])
         elif str(core.get("status") or "") == UploadStatus.PAUSED.value and str(core.get("recovery_state") or "") != "REVIEW_REQUIRED":
-            self.db.resume_paused(exclude_auto_engine=True)
+            if concat:
+                self.db.resume_paused(exclude_auto_engine=True, video_ids=[core_video_id])
+            else:
+                self.db.resume_paused(exclude_auto_engine=True)
 
-        # 3) Proven desktop queue engine, hard-locked to one active upload.
+        # 3) Proven desktop queue engine. Concat claims this selected ID only.
         self.store.update(project_id, status="UPLOADING")
         self.store.event(project_id, "YouTube upload started with serial concurrency=1")
-        self.uploader.process_queue(
-            stop_check=lambda: self.shutdown_event.is_set() or self.stop_current_event.is_set(),
-            max_concurrent=1,
-            exclude_auto_engine=True,
-            wait_for_future_schedules=False,
-        )
+        if not (concat and str(core.get("status") or "") in {
+                UploadStatus.UPLOADED.value, UploadStatus.PUBLISHED.value}):
+            self.uploader.process_queue(
+                stop_check=lambda: self.shutdown_event.is_set() or self.stop_current_event.is_set(),
+                max_concurrent=1,
+                exclude_auto_engine=True,
+                wait_for_future_schedules=False,
+                **({"only_video_id": core_video_id} if concat else {}),
+            )
         core = self.db.get_video(core_video_id) or {}
         self._sync_core_state(project_id, core)
         core_status = str(core.get("status") or "")
