@@ -113,10 +113,12 @@ class HeygenStudioTest(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn("Create Video", page.text)
         self.assertIn("Jobs &amp; Videos", page.text)
-        # Direct HeyGen URL remains functional, but only Concat is in Experiment nav.
-        nav = page.text.split('class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
-        self.assertIn('href="/cloud-render/">Concat</a>', nav)
-        self.assertNotIn('href="/heygen-studio/"', nav)
+        # The direct HeyGen URL works for both admin and owner-scoped members.
+        # Experiment subnavigation is admin-only and advertises only Concat.
+        if 'class="vps1-experiment-tabs"' in page.text:
+            nav = page.text.split('class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
+            self.assertIn('href="/cloud-render/">Concat</a>', nav)
+            self.assertNotIn('href="/heygen-studio/"', nav)
         token = re.search(r'data-csrf="([^"]+)"', page.text)
         self.assertIsNotNone(token)
         return {"X-Heygen-CSRF": token.group(1)}
