@@ -37,16 +37,19 @@ class ExperimentFourStudioLayoutTests(unittest.TestCase):
             username="owner",
         )
 
-    def test_all_four_studios_share_one_aligned_shell_and_navigation(self):
+    def test_all_four_studios_keep_aligned_shell_with_concat_only_navigation(self):
         for page, label, route in FOUR_PAGES:
             with self.subTest(page=page):
                 html = self.render(page)
                 self.assertIn('class="vps1-experiment-four-main ', html)
                 self.assertIn('/static/experiment_four_studio_layout.css?v=20261116-1', html)
                 self.assertEqual(html.count('aria-label="Experiment Studio"'), 1)
-                self.assertIn('href="/' + route + '/"', html)
                 self.assertRegex(html, r'<nav class="vps1-experiment-tabs"')
-                self.assertIn(label, html)
+                nav = html.split('<nav class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
+                self.assertIn('href="/cloud-render/">Concat</a>', nav)
+                self.assertEqual(nav.count("<a "), 1)
+                for hidden in ("Antidetect Browser", "Upload Studio", "HeyGen Studio", "Voice Clone", "Imagen"):
+                    self.assertNotIn(hidden, nav)
 
     def test_upload_studio_uses_unchanged_native_layout(self):
         html = self.render("local_upload_manager")
