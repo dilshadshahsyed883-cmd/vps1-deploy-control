@@ -2,6 +2,11 @@
 (() => {
   'use strict';
   function install() {
+    // Keep the original Copyright body markup contract unchanged.
+    // Concat uses its styles under the separate engine-instance flag.
+    if (document.querySelector('[data-engine-instance="concat"]')) {
+      document.body.classList.add('lum-copyright-workspace');
+    }
     const profile = document.getElementById('copyright-upload-profile');
     const requested = new URLSearchParams(location.search).get('profile_id');
     if (profile && requested && Array.from(profile.options).some(o => o.value === requested)) profile.value = requested;
