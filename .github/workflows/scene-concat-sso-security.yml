@@ -21,7 +21,7 @@ jobs:
       - name: Install isolated test dependencies
         run: python -m pip install 'starlette>=0.36,<1'
       - name: Scene SSO issuer negative security checks
-        run: python -m unittest discover -s tests -p 'test_concat_sso_issuer.py' -v
+        run: python -m unittest discover -s tests -p 'test_concat*sso_issuer.py' -v
       - name: Compile issuer and syntax-check integration
         run: |
           python -m py_compile apps/scene-builder/part01/concat_sso_issuer.py
