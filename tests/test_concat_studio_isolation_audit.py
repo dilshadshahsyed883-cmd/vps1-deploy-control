@@ -31,8 +31,8 @@ from cloud_render import register_cloud_render
 MP4 = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 81
 
 
-class CloudRenderInterimGateTests(unittest.TestCase):
-    """Do not remove admin gates until real two-owner authorization passes."""
+class CloudRenderOwnerAPITests(unittest.TestCase):
+    """Alice, Bob and Admin receive only their own Cloud Render resources."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -66,51 +66,71 @@ class CloudRenderInterimGateTests(unittest.TestCase):
         app.add_middleware(SessionMiddleware, secret_key="temporary-audit-fixture")
         self.client = TestClient(app)
         self.addCleanup(self.client.close)
-
-        for job in ("alice-media", "bob-media", "legacy-media"):
+        for user, job in (("alice", "alice-media"), ("bob", "bob-media")):
+            with self.manager.connection() as con:
+                con.execute("""INSERT INTO production_jobs
+                    (remote_id,drive_id,name,resource_keys,drive_size,drive_md5,
+                     folder_id,drive_path,owner_username) VALUES(?,?,?,?,?,?,?,?,?)""",
+                    (job, "drive-" + job, job + ".zip", "", 0, "", "", "", user))
             self.manager.receive(job, 0, MP4, name=job + ".mp4",
-                                 size=len(MP4),
-                                 sha=hashlib.sha256(MP4).hexdigest())
+                                 size=len(MP4), sha=hashlib.sha256(MP4).hexdigest())
+        # Legacy record has no verified account association and is invisible.
+        with self.manager.connection() as con:
+            con.execute("""INSERT INTO files(id,name,size,sha256,state)
+                           VALUES(?,?,?,?,?)""",
+                        ("legacy-media", "legacy.mp4", len(MP4),
+                         hashlib.sha256(MP4).hexdigest(), "ready"))
 
-    def test_two_non_admin_sessions_cannot_guess_render_media_or_config(self):
-        urls = [
-            "/cloud-render/",
-            "/api/cloud-render/production",
-            "/api/cloud-render/media",
-            "/api/cloud-render/config",
-            "/api/cloud-render/media/alice-media/file",
-            "/api/cloud-render/media/bob-media/file",
-            "/api/cloud-render/media/legacy-media/file?download=1",
-        ]
-        for username in ("alice", "bob"):
-            self.client.get("/_audit/session/" + username)
-            for path in urls:
-                with self.subTest(username=username, path=path):
-                    response = self.client.get(path, headers={
-                        "X-Auth-User": "admin", "X-Is-Admin": "1",
-                    })
-                    self.assertEqual(response.status_code, 403)
+    def test_session_list_and_download_deny_other_owners_even_admin(self):
+        expected = {"alice": {"alice-media"}, "bob": {"bob-media"}, "admin": set()}
+        for user, ids in expected.items():
+            self.client.get("/_audit/session/" + user)
+            with self.subTest(user=user):
+                media = self.client.get("/api/cloud-render/media",
+                                        headers={"X-Auth-User": "alice",
+                                                 "X-Is-Admin": "1"})
+                self.assertEqual(media.status_code, 200)
+                self.assertEqual({row["id"] for row in media.json()["items"]}, ids)
+                self.assertEqual(self.client.get("/api/cloud-render/production").status_code, 200)
+                for job in ("alice-media", "bob-media", "legacy-media"):
+                    res = self.client.get("/api/cloud-render/media/" + job + "/file")
+                    self.assertEqual(res.status_code, 200 if job in ids else 404)
 
-    def test_current_admin_sees_global_media_this_is_not_multiuser_pass(self):
-        self.client.get("/_audit/session/admin")
-        response = self.client.get("/api/cloud-render/media")
-        self.assertEqual(response.status_code, 200)
-        ids = {row["id"] for row in response.json()["items"]}
-        self.assertEqual(ids, {"alice-media", "bob-media", "legacy-media"})
-        # An admin can see every row TODAY: release blocker, not desired behavior.
+    def test_owner_credentials_are_private_and_admin_not_exempt(self):
+        self.manager.save({"worker_key": "alice-secret", "endpoint": "https://fixture.salad.cloud"}, "alice")
+        self.manager.save({"worker_key": "bob-secret"}, "bob")
+        for user, expected_endpoint in (("alice", "https://fixture.salad.cloud"),
+                                        ("bob", ""), ("admin", "")):
+            self.client.get("/_audit/session/" + user)
+            cfg = self.client.get("/api/cloud-render/config")
+            self.assertEqual(cfg.status_code, 200)
+            self.assertEqual(cfg.json()["endpoint"], expected_endpoint)
+            self.assertEqual(cfg.json()["worker_key_saved"], user != "admin")
+            self.assertNotIn("alice-secret", cfg.text)
+            self.assertNotIn("bob-secret", cfg.text)
 
-    def test_direct_ingest_requires_receiver_token_without_browser_session(self):
+    def test_anonymous_and_spoofed_headers_cannot_access_cloud_render(self):
         self.client.get("/_audit/session/guest")
-        response = self.client.post(
-            "/api/cloud-render/ingest/bob-media/chunk",
-            params={"index": 0, "name": "bob.mp4", "size": len(MP4),
-                    "sha256": hashlib.sha256(MP4).hexdigest()},
-            content=b"ignored",
-            headers={"X-Auth-User": "admin"},
-        )
-        self.assertEqual(response.status_code, 401)
+        for path in ("/cloud-render/", "/api/cloud-render/media",
+                     "/api/cloud-render/production", "/api/cloud-render/config"):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path, headers={
+                    "X-Auth-User": "admin", "X-Is-Admin": "1"
+                }).status_code, 401)
 
-    def test_browser_writes_require_admin_and_csrf(self):
+    def test_direct_ingest_requires_token_and_owner_bound_job(self):
+        self.client.get("/_audit/session/guest")
+        data = b"ignored"
+        params={"index": 0, "name": "orphan.mp4", "size": len(MP4),
+                "sha256": hashlib.sha256(MP4).hexdigest()}
+        path="/api/cloud-render/ingest/orphan/chunk"
+        self.assertEqual(self.client.post(path, params=params, content=data).status_code, 401)
+        token=self.manager.rotate_token()["receiver_token"]
+        response=self.client.post(path, params=params, content=data,
+                                  headers={"X-Cloud-Render-Token": token})
+        self.assertEqual(response.status_code, 404)
+
+    def test_browser_writes_require_csrf_for_every_role(self):
         for user in ("alice", "bob", "admin"):
             self.client.get("/_audit/session/" + user)
             for path in ("/api/cloud-render/production/jobs/999/cancel",
@@ -119,17 +139,19 @@ class CloudRenderInterimGateTests(unittest.TestCase):
                 with self.subTest(user=user, path=path):
                     response = self.client.post(path, json={"name": "ignored.mp4"})
                     self.assertEqual(response.status_code, 403)
-        # All requests above lacked CSRF and cannot change any queue or file.
 
-    def test_source_guard_cannot_be_dropped_without_backend_owner_fields(self):
-        cloud = (SCENE / "cloud_render.py").read_text(encoding="utf-8")
-        production = (SCENE / "cloud_render_production.py").read_text(encoding="utf-8")
-        app = (SCENE / "app.py").read_text(encoding="utf-8")
-        if "owner_username" not in cloud or "owner_username" not in production:
-            self.assertIn('require_admin(req)', cloud)
-            self.assertIn('request.url.path.startswith("/api/cloud-render/")', app)
-            self.assertIn('not account.get("is_admin")', app)
-
+    def test_cross_owner_media_mutation_denied(self):
+        for user, foreign_job in (("alice", "bob-media"),
+                                  ("bob", "alice-media"),
+                                  ("admin", "alice-media")):
+            self.client.get("/_audit/session/" + user)
+            with self.manager.connection() as con:
+                self.assertIsNone(con.execute(
+                    "SELECT id FROM files WHERE id=? AND owner_username=?",
+                    (foreign_job, user)).fetchone())
+            with self.assertRaises(HTTPException) as denied:
+                self.manager.rename(foreign_job, "newname.mp4", user)
+            self.assertEqual(denied.exception.status_code, 404)
 
 class CopyrightOwnerIsolationReferenceTests(unittest.TestCase):
     """Protect the strict Copyright behavior that Concat must reuse explicitly."""
