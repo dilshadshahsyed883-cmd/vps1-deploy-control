@@ -2298,9 +2298,9 @@ def song_studio_app_slot(request: Request, studio_app: str):
 
 @app.get("/experiment-studio/")
 def experiment_studio_home(request: Request):
-    """The Experiment Studio main tab opens its first independent subtab."""
+    """The Experiment Studio main tab opens its only visible subtab."""
     require_login(request)
-    return RedirectResponse("/experiment-studio/antidetect-browser/", status_code=303)
+    return RedirectResponse("/cloud-render/", status_code=303)
 
 
 @app.get("/experiment-studio/self-media-library/")
