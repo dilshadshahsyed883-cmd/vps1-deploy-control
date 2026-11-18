@@ -56,8 +56,11 @@ class SceneVideoStudioShell(unittest.TestCase):
 
     def test_original_scene_navigation_and_video_tabs(self):
         html = (T / "base.html").read_text()
-        for label in ("Dashboard", "Upload Studio", "Video Studio", "Voice Studio", "Admin"):
+        for label in ("Dashboard", "Video Studio", "Voice Studio", "Admin"):
             self.assertIn(label, html)
+        experiment_nav = html.split('class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
+        self.assertIn(">Concat</a>", experiment_nav)
+        self.assertNotIn("Upload Studio", experiment_nav)
         for url in ("/scene-builder/", "/auto-caption-studio/",
                     "/video-merger/"):
             self.assertIn('href="' + url + '"', html)
