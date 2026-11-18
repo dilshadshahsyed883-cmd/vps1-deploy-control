@@ -22,6 +22,10 @@ def module(name):
 
 SOURCE = module("concat_source")
 SCHEDULE = module("concat_schedule")
+import sys
+sys.path.insert(0, str(ENGINE.parent))
+from lum_engine.concat_sheet import preview_sheet_videos
+
 VIDEO_ID = "abcde12345"
 LINK = f"https://app.scenebuilder.online/api/cloud-render/media/{VIDEO_ID}/file"
 BYTES = b"\x00\x00\x00\x14ftypisom" + (b"verified-frame" * 100)
@@ -111,6 +115,20 @@ class ConcatUploaderSourceTests(unittest.TestCase):
     def test_missing_cloud_root_denied(self):
         with self.assertRaises(ValueError):
             SOURCE.stage_concat_link(LINK, "owner1", self.stage, cloud_root=self.cloud / "missing")
+
+
+class ConcatSheetLinkTests(unittest.TestCase):
+    def test_optional_sheet_mapping_does_not_queue_or_fetch_video(self):
+        rows = [
+            {"concat_video_link": LINK, "title": "Video A", "description": "About A"},
+            {"concat_video_link": "https://evil.example/video.mp4", "title": "Bad"},
+            {"video_link": LINK.replace(VIDEO_ID, "otherjob"), "video_title": "Video B"},
+        ]
+        preview = preview_sheet_videos(rows)
+        self.assertEqual(len(preview), 2)
+        self.assertEqual(preview[0]["title"], "Video A")
+        self.assertEqual(preview[1]["title"], "Video B")
+        self.assertNotIn("staging_path", preview[0])
 
 
 class ConcatSchedulingTests(unittest.TestCase):
