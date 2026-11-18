@@ -44,6 +44,11 @@ class SSOUnavailable(RuntimeError):
     """The separate Concat signing key or Scene session storage is unavailable."""
 
 
+def eligible_username(username: str) -> bool:
+    return (isinstance(username, str) and bool(USERNAME.fullmatch(username))
+            and username == username.strip() and username != "__default__")
+
+
 def sid_hash(raw: str) -> str:
     return hashlib.sha256(raw.encode("ascii")).hexdigest()
 
@@ -95,7 +100,7 @@ def start_session(conn: sqlite3.Connection, scene_session: dict, username: str,
     Plain SID is stored only inside Scene's existing signed, Secure, HttpOnly,
     host-only Starlette session cookie, never in the SQLite row or logs.
     """
-    if not isinstance(username, str) or not USERNAME.fullmatch(username) or username == "__default__":
+    if not eligible_username(username):
         raise SSORejected("Invalid Scene account")
     current = int(time.time()) if now is None else now
     raw = secrets.token_urlsafe(32)
@@ -174,7 +179,7 @@ def authorize_handoff(request, db_factory, get_account, *,
     if scene.get("authenticated") is not True:
         raise SSORejected("Scene login required")
     name = scene.get("username")
-    if not isinstance(name, str) or not USERNAME.fullmatch(name) or name == "__default__":
+    if not eligible_username(name):
         raise SSORejected("Invalid Scene identity")
     account = get_account(name)
     if (not account or not int(account.get("is_active") or 0)
