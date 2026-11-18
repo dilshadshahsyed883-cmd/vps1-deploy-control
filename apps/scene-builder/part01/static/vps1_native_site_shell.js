@@ -360,7 +360,7 @@
     const isSongAudio = app === "voice" &&
       (/^\/audio-downloader\/?$/.test(window.location?.pathname || "") ||
        document.body.classList.contains("vs-audio-active"));
-    const secondLevel = !isSongAudio && ["acs", "uploader", "stream", "library"].includes(app)
+    const secondLevel = current !== "concat" && !isSongAudio && ["acs", "uploader", "stream", "library"].includes(app)
       ? createExperimentTabs(false, app === "library" ? "library" :
           app === "acs" ? "video" : app === "voice" ? "voice" : "upload")
       : null;
