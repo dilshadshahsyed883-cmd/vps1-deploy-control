@@ -1,0 +1,28 @@
+name: Scene Concat SSO issuer security
+on:
+  pull_request:
+    paths:
+      - 'apps/scene-builder/part01/app.py'
+      - 'apps/scene-builder/part01/concat_sso_issuer.py'
+      - 'tests/test_concat_sso_issuer.py'
+      - '.github/workflows/scene-concat-sso-security.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scene-sso-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated test dependencies
+        run: python -m pip install 'starlette>=0.36,<1'
+      - name: Scene SSO issuer negative security checks
+        run: python -m unittest discover -s tests -p 'test_concat_sso_issuer.py' -v
+      - name: Compile issuer and syntax-check integration
+        run: |
+          python -m py_compile apps/scene-builder/part01/concat_sso_issuer.py
+          python -m py_compile apps/scene-builder/part01/app.py
