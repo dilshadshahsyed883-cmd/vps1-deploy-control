@@ -32,7 +32,9 @@ class AutoStreamCanonicalTests(unittest.TestCase):
         css=(SCENE/"static/vps1_native_site_shell.css").read_text()
         lum=LUM.read_text()
         self.assertIn('<nav class="vps1-experiment-tabs" aria-label="Experiment Studio">',base)
-        self.assertIn('href="/local-upload-manager/app?embedded=1&amp;tab=dashboard">Upload Studio</a>',base)
+        nav=base.split('class="vps1-experiment-tabs"',1)[1].split("</nav>",1)[0]
+        self.assertIn('href="/cloud-render/">Concat</a>',nav)
+        self.assertNotIn('>Upload Studio</a>',nav)
         self.assertNotIn('href="/local-upload-manager">Upload Studio</a>',base)
         self.assertNotIn('<a href="/auto-stream/">Auto Stream</a>',base)
         self.assertIn('data-workspace="stream"',css)
