@@ -23,10 +23,9 @@ class AutoScriptTabTests(unittest.TestCase):
     def test_legacy_auto_script_hidden_from_experiment_subtab(self):
         base = (SCENE / "templates/base.html").read_text()
         rail = base.split('class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
-        self.assertEqual(rail.count("<a "), 6)
-        for label in ("Antidetect Browser", "Upload Studio", "Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
-            self.assertEqual(rail.count(">" + label + "</a>"), 1)
-        for label in ("Auto Script", "Self Media Library", "Video Studio"):
+        self.assertEqual(rail.count("<a "), 1)
+        self.assertEqual(rail.count(">Concat</a>"), 1)
+        for label in ("Antidetect Browser", "Upload Studio", "HeyGen Studio", "Voice Clone", "Imagen", "Auto Script", "Self Media Library", "Video Studio"):
             self.assertNotIn(">" + label + "</a>", rail)
         self.assertIn("page=='auto_script'", base)
         self.assertIn("page in ['experiment_studio','auto_script','local_upload_manager'", base)
@@ -36,7 +35,9 @@ class AutoScriptTabTests(unittest.TestCase):
         shell = (SCENE / "static/vps1_native_site_shell.js").read_text()
         self.assertIn('experiment-studio|self-media-library|auto-script', shell)
         self.assertNotIn('["Auto Script", "/experiment-studio/auto-script/", "auto-script"]', shell)
-        self.assertIn('["Upload Studio",', shell)
+        nav = shell.split("const EXPERIMENT_NAV = Object.freeze([", 1)[1].split("]);", 1)[0]
+        self.assertIn('["Concat",', nav)
+        self.assertNotIn('["Upload Studio",', nav)
         sml = (ROOT / "apps/self-media-library/part01/static/index.html").read_text()
         self.assertIn("vps1_native_site_shell.js?v=20261025-auto-script-nav-v1", sml)
         self.assertIn("&experiment-hide=20261109", sml)
