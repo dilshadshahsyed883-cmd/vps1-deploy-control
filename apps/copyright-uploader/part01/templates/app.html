@@ -26,7 +26,12 @@
   {% if tab != 'auto_stream' %}
   <div class="lum-tabs-shell" data-lum-sticky-tabs>
 <nav class="lum-tabs" aria-label="Copyright Uploader workspace">
-      {% if engine_instance == 'copyright' %}
+      {% if engine_instance == 'concat' %}
+      <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
+      <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
+      <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Upload Engine</a>
+      <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
+      {% elif engine_instance == 'copyright' %}
       <a class="{{ 'active' if tab=='dashboard' else '' }}" href="{{ base_path }}/app?tab=dashboard">Dashboard</a>
       <a class="{{ 'active' if tab=='channels' else '' }}" href="{{ base_path }}/app?tab=channels">Channels</a>
       <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
@@ -43,13 +48,13 @@
       <a class="{{ 'active' if tab=='sheets' else '' }}" href="{{ base_path }}/app?tab=sheets">Sheets Sync</a>
       <a class="{{ 'active' if tab=='auto_engine' else '' }}" href="{{ base_path }}/app?tab=auto_engine">Auto Engine</a>
       {% endif %}
-      {% if engine_instance not in ['song', 'shortstudio', 'copyright'] %}
+      {% if engine_instance not in ['song', 'shortstudio', 'copyright', 'concat'] %}
       <a class="{{ 'active' if tab=='add_video' else '' }}" href="{{ base_path }}/app?tab=add_video">Add Video</a>
       <a class="{{ 'active' if tab=='bulk_import' else '' }}" href="{{ base_path }}/app?tab=bulk_import">Bulk Import</a>
       <a class="{{ 'active' if tab=='queue' else '' }}" href="{{ base_path }}/app?tab=queue">Queue</a>
       {% endif %}
-      <a class="{{ 'active' if tab=='logs' else '' }}" href="{{ base_path }}/app?tab=logs">Logs</a>
-      {% if engine_instance == 'copyright' %}
+      {% if engine_instance != "concat" %}<a class="{{ 'active' if tab=='logs' else '' }}" href="{{ base_path }}/app?tab=logs">Logs</a>{% endif %}
+      {% if engine_instance in ['copyright','concat'] %}
       <div class="copyright-runtime" role="status" aria-label="Uploader status">
         <span class="lum-badge {{ 'good' if health.worker_alive else 'warn' }}">Worker {{ 'Online' if health.worker_alive else 'Offline' }}</span>
         <span class="lum-badge {{ 'good' if stats.engine_enabled and stats.settings.pause_after_current != '1' else 'warn' }}">Queue {{ 'Paused' if not stats.engine_enabled else ('Pausing' if stats.settings.pause_after_current == '1' else 'Ready') }}</span>
@@ -60,9 +65,17 @@
   {% endif %}
 
   {% macro upload_form(simple=False) %}
-  {% if engine_instance == 'copyright' %}
+  {% if engine_instance in ['copyright','concat'] %}
   <form class="lum-grid lum-upload-grid copyright-upload" data-copyright-upload method="post" action="{{ base_path }}/actions/add-video" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {% if engine_instance == 'concat' %}
+    <section class="lum-card lum-span-2 copyright-source-card">
+      <div class="lum-card-head"><div><h2>Concat Video Link</h2><p>Paste Copy Video Link from your completed, owner-verified Cloud Render MP4.</p></div><span class="lum-badge brand">Manual queue</span></div>
+      <select name="source_mode" id="copyright-source-mode" hidden aria-label="Video source"><option value="concat_link" selected>Concat Video Link</option></select>
+      <label class="lum-field"><span>Concat Video Link</span><input name="concat_video_link" type="url" maxlength="2048" required placeholder="https://app.scenebuilder.online/api/cloud-render/media/VIDEO_ID/file" autocomplete="off"></label>
+      <p class="lum-note">Only video links belonging to this account are accepted. Unverified/legacy videos cannot be queued.</p>
+    </section>
+    {% else %}
     <section class="lum-card lum-span-2 copyright-source-card">
       <div class="lum-card-head"><div><h2>Add Video</h2><p>Choose a source, then set the destination and video details.</p></div><span class="lum-badge brand">Manual queue</span></div>
       <label class="lum-field"><span>Source</span><select name="source_mode" id="copyright-source-mode">
@@ -92,6 +105,7 @@
         <p class="lum-note">Queued videos are hidden until released.</p>
       </div>
     </section>
+    {% endif %}
     <section class="lum-card">
       <h2>Upload Destination</h2><input type="hidden" name="profile_id" value="0">
       <label class="lum-field"><span>3. Select Group</span><select name="group_name" id="copyright-channel-group" required>
@@ -455,7 +469,7 @@
     <section class="lum-channel-subnav" aria-label="Channels workspace">
       <button type="button" class="active" data-lum-channel-panel-target="manager">Channel Manager</button>
       <button type="button" data-lum-channel-panel-target="accounts">Accounts & Tokens</button>
-      {% if user.is_admin and engine_instance != "copyright" %}<button type="button" data-lum-channel-panel-target="pcsync">PC Data Sync</button>{% endif %}
+      {% if user.is_admin and engine_instance not in ["copyright","concat"] %}<button type="button" data-lum-channel-panel-target="pcsync">PC Data Sync</button>{% endif %}
     </section>
 
     <div data-lum-channel-panel="manager">
@@ -642,7 +656,7 @@
         <p class="lum-note">Valid tokens are preserved unless you choose replacement. An imported token is stored under your private VPS credentials folder; no global token vault is overwritten.</p>
       </section>
       {% endif %}
-      {% if engine_instance != "copyright" %}<section class="lum-card">
+      {% if engine_instance not in ["copyright","concat"] %}<section class="lum-card">
         <div class="lum-card-head"><div><h2>Permanent OAuth & Token Vault</h2><p>Stored outside releases in the PC-engine permanent config/ and data/tokens/ directories.</p></div></div>
         <div class="lum-vault-stats">
           <div><span>OAuth clients</span><strong>{{ oauth_inventory.config_valid or 0 }}</strong><small>{{ oauth_inventory.config_invalid or 0 }} invalid</small></div>
@@ -675,7 +689,7 @@
       </section>{% endif %}
     </div>
 
-    {% if user.is_admin and engine_instance != "copyright" %}
+    {% if user.is_admin and engine_instance not in ["copyright","concat"] %}
     <div data-lum-channel-panel="pcsync" hidden>
       <section class="lum-card">
         <div class="lum-card-head"><div><h2>PC Data Sync</h2><p>Direct PC → HTTPS → VPS synchronization. Secrets do not pass through Google Drive.</p></div><span class="lum-badge">Preview first</span></div>
@@ -704,12 +718,12 @@
       <div class="lum-card-head">
         <div>
           <h2>Sheets Sync</h2>
-          {% if engine_instance not in ['song','copyright'] %}<p>PC-app Sheets engine connected to the web. Inventory uses the FIRST worksheet tab only; saved token/history state remains protected.</p>{% endif %}
+          {% if engine_instance not in ['song','copyright','concat'] %}<p>PC-app Sheets engine connected to the web. Inventory uses the FIRST worksheet tab only; saved token/history state remains protected.</p>{% endif %}
         </div>
         <span class="lum-badge {{ 'good' if stats.settings.sheets_sync_enabled=='1' else 'warn' }}">{{ 'Sync Enabled' if stats.settings.sheets_sync_enabled=='1' else 'Sync Mode OFF' }}</span>
       </div>
 
-      {% if engine_instance in ['song','copyright'] %}<details class="lum-note lum-sheet-format-help"><summary>Sheet format</summary>{% else %}<div class="lum-note">{% endif %}
+      {% if engine_instance in ['song','copyright','concat'] %}<details class="lum-note lum-sheet-format-help"><summary>Sheet format</summary>{% else %}<div class="lum-note">{% endif %}
         Expected first-tab headers: Sr, ip, Browser Profile, Channel Name's, Channel Link's, Gmail's, Password's, Backup code's, Back Up Key's, Group, Status, Notes.
         Multiple groups in one cell may be separated by comma, semicolon, or |. Removed rows disappear from current inventory while saved tokens/history are retained.
       {% if engine_instance in ['song','copyright'] %}</details>{% else %}</div>{% endif %}
@@ -1475,7 +1489,7 @@
     {{ upload_form(False) }}
   {% elif tab == 'bulk_import' %}
     <section class="lum-card"><div class="lum-card-head"><div><h2>Bulk Import</h2><p>Desktop feature retained behind a mode toggle. Current production remains single-project submission.</p></div><span class="lum-badge {{ 'good' if stats.settings.bulk_import_enabled=='1' else 'warn' }}">{{ 'Enabled' if stats.settings.bulk_import_enabled=='1' else 'Mode OFF' }}</span></div><div class="lum-disabled-grid"><label class="lum-field"><span>Import source</span><input disabled placeholder="Future bulk source"></label><label class="lum-field"><span>Target group</span><select disabled><option>Select group</option></select></label><button class="lum-button" disabled>Preview Import</button><button class="lum-button primary" disabled>Add to Queue</button></div><div class="lum-note">Bulk items will be expanded into independent single-video VPS projects rather than creating a second upload engine.</div></section>
-  {% elif tab == 'queue' and engine_instance == 'copyright' %}
+  {% elif tab == 'queue' and engine_instance in ['copyright','concat'] %}
     {% include "copyright_queue.html" %}
   {% elif tab == 'queue' %}
     <section class="lum-card"><div class="lum-card-head"><div><h2>Queue</h2><p>Crash-safe desktop upload states wrapped by Drive staging, remote verification and verified cleanup.</p></div><div class="lum-actions">{% if user.is_admin %}
