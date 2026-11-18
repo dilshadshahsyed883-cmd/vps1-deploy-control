@@ -129,10 +129,6 @@ window.clearInterval=id=>{window.__shellTimers.delete(id);return stop(id);};''')
                     sidebar_click(page,'Admin')
                     page.locator('#cpu-value').wait_for()
                     page.go_back(wait_until='domcontentloaded');page.locator('#control-dashboard').wait_for()
-                    # Mobile history restores may retain an open drawer; close it
-                    # before interacting with controls behind the overlay.
-                    if width <= 760 and page.locator('#mobile-nav-toggle').get_attribute('aria-expanded') == 'true':
-                        page.locator('#mobile-nav-toggle').click()
                     assert not page.locator('#dashboard-auto-refresh').is_checked(),'dashboard preferences lost'
                     assert page.locator('#dashboard-refresh-rate').input_value()=='30'
                     assert page.evaluate('window.__shellTimers.size')==0,'polling preference ignored'
