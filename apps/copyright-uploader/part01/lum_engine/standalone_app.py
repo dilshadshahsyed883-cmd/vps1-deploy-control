@@ -103,7 +103,8 @@ from .auto_engine_v6 import (
     shortstudio_list_folders as v6_shortstudio_list_folders,
 )
 
-OWNER_SCOPED = os.getenv("LUM_ENGINE_INSTANCE") in {"copyright", "concat"}
+IS_COPYRIGHT = os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
+OWNER_SCOPED = IS_COPYRIGHT or os.getenv("LUM_ENGINE_INSTANCE") == "concat"
 app = FastAPI(title="Concat Uploader" if os.getenv("LUM_ENGINE_INSTANCE") == "concat" else "Copyright Uploader", version=BUILD, docs_url=None, redoc_url=None)
 v6_store = V6Store()
 app.mount(route("/static"), StaticFiles(directory=str(STATIC_ROOT)), name="static")
