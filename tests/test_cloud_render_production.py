@@ -7,23 +7,23 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 SCENE = Path(__file__).resolve().parents[1] / "apps/scene-builder/part01"
 sys.path.insert(0, str(SCENE))
 from cloud_render import CloudRender, RcloneFailure
-from cloud_render_production import CHUNK, MODE, JobError, Worker, WorkerWait, drive_link
+from cloud_render_production import CHUNK, MODE, JobError, Worker, WorkerWait, bundle_manifest, drive_link
 
 FOLDER = "https://drive.google.com/drive/u/2/folders/folder1?resourcekey=folder-key"
 FILE = "https://drive.google.com/file/d/project1/view?resourcekey=project-key"
 MP4 = b"\x00\x00\x00\x18ftypisom" + b"verified output fixture"
 
 
-def project_zip(label):
+def project_zip(label, **metadata):
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as bundle:
         bundle.writestr("bundle.json", json.dumps({
-            "version": 1, "project_file": "concat.json", "references": []
+            "version": 1, "project_file": "concat.json", "references": [], **metadata
         }))
         bundle.writestr("project/concat.json", json.dumps({"media": [], "label": label}))
     return stream.getvalue()
@@ -38,8 +38,6 @@ class WorkerFixture(Worker):
         self.sessions = {}
         self.jobs = {}
         self.output = MP4
-        self.valid = True
-        self.manifest_limit = 64 * 1024 ** 2
         self.fail_put_once = False
         self.lose_complete_once = False
         self.requests = []
@@ -53,15 +51,8 @@ class WorkerFixture(Worker):
         if path == "/api/config/concurrency":
             self.concurrency = kwargs["json"]["concurrency"]
             return {"concurrency": self.concurrency}
-        if path == "/api/capabilities":
-            caps = {"api_version": 1, "validation_version": 1, "bundle_versions": [1],
-                    "render_modes": [MODE]}
-            if self.manifest_limit is not None:
-                caps["max_project_manifest_bytes"] = self.manifest_limit
-            return caps
-        if path == "/api/validate":
-            json.loads(kwargs["data"])
-            return {"ok": self.valid, "errors": ["Unsupported effect fixture"]}
+        if path in ("/api/capabilities", "/api/validate"):
+            raise AssertionError("VPS_1 must not inspect Concat renderer capabilities or validate effects")
         parts = path.split("/")
         job = parts[3]
         if parts[2] == "jobs":
@@ -242,19 +233,100 @@ class ProductionTest(unittest.TestCase):
         self.queue.tick()
         self.assertEqual(self.state(), "Rendering")
 
-    def test_compatibility_error_prevents_any_gpu_zip_upload(self):
-        self.worker.valid = False
-        self.start_file()
-        self.assertEqual(self.state(), "Failed")
-        self.assertIn("Unsupported effect", self.row()["error"])
-        self.assertFalse(self.worker.sessions)
+    def test_vps_is_a_transport_and_does_not_validate_render_features(self):
+        # Only Concat's worker owns manifest feature compatibility.  The VPS
+        # must not call /api/validate, nor reject a worker capability field.
+        job = self.start_file()
+        self.assertEqual(self.state(), "Rendering")
+        self.assertNotIn(("GET", "/api/capabilities"), self.worker.requests)
+        self.assertNotIn(("POST", "/api/validate"), self.worker.requests)
+        self.assertIn(job, self.worker.sessions)
+        self.worker.rendered(job)
+        self.queue.tick()
+        self.assertEqual(self.state(), "Completed")
 
-    def test_existing_worker_without_advertised_manifest_limit_can_render(self):
-        self.worker.manifest_limit = None
+    def test_render_dispatch_is_not_tied_to_worker_manifest_capabilities(self):
         job = self.start_file()
         self.worker.rendered(job)
         self.queue.tick()
         self.assertEqual(self.state(), "Completed")
+        self.assertNotIn(("GET", "/api/capabilities"), self.worker.requests)
+
+    def test_render_contract_is_opaque_to_vps_and_legacy_zip_is_unchanged(self):
+        for contract in ({"id": "future-worker-owned-contract", "version": 99}, None):
+            with self.subTest(contract=contract):
+                # Structural ZIP checks must not become another render contract gate.
+                path = Path(self.temp.name) / "opaque.zip"
+                data = project_zip("opaque", render_contract=contract)
+                path.write_bytes(data)
+                self.assertEqual(json.loads(bundle_manifest(path))["label"], "opaque")
+                self.assertEqual(path.read_bytes(), data)
+        self.start_file()  # historical ZIP omits render_contract
+        row = self.row()
+        self.assertEqual(self.queue.archive(row["id"]).read_bytes(), self.files["project1"])
+
+    def test_worker_feature_rejection_preserves_error_zip_queue_and_retry_after_restart(self):
+        for state in ("failed", "waiting_for_gpu"):
+            with self.subTest(state=state):
+                job = self.start_file()
+                row = self.row()
+                self.worker.jobs[job].update(state=state, error="Unsupported worker feature fixture")
+                self.queue.tick()
+                self.assertEqual(self.state(), "Failed")
+                self.assertEqual(self.row()["error"], "Unsupported worker feature fixture")
+                self.assertEqual(self.queue.archive(row["id"]).read_bytes(), self.files["project1"])
+                self.assertEqual(self.media.listing()["items"], [])
+                self.reopen()
+                self.queue.action(row["id"], "retry")
+                self.queue.tick()
+                replacement = self.row()["remote_id"]
+                self.assertNotEqual(replacement, job)
+                self.assertEqual(self.state(), "Rendering")
+                self.assertEqual(len(self.drive_calls), 1)
+                # Finish and remove before the next state scenario.
+                self.worker.rendered(replacement)
+                self.queue.tick()
+                self.assertEqual(self.state(), "Completed")
+                self.queue.action(row["id"], "delete")
+                self.media.delete(replacement)
+                self.drive_calls.clear()
+
+    def test_failed_render_does_not_block_next_project(self):
+        self.queue.scan(FOLDER)
+        self.queue.control("start")
+        self.queue.tick()
+        self.worker.jobs[self.row()["remote_id"]].update(
+            state="failed", error="Unsupported rendering fixture")
+        self.queue.tick()
+        self.assertEqual(self.state(), "Failed")
+        self.queue.tick()
+        self.assertEqual(self.state(1), "Rendering")
+        self.assertTrue(self.queue.archive(self.row()["id"]).is_file())
+
+    def test_zip_structural_path_and_size_safety_remains_enforced(self):
+        path = Path(self.temp.name) / "unsafe.zip"
+        for name, entry, content in (
+            ("traversal", "../escape", b"unsafe"),
+            ("unexpected", "extra.txt", b"unsafe"),
+            ("duplicate", "bundle.json", b"{}"),
+        ):
+            with self.subTest(name=name):
+                path.write_bytes(project_zip("one"))
+                with zipfile.ZipFile(path, "a") as archive:
+                    archive.writestr(entry, content)
+                with self.assertRaises(JobError):
+                    bundle_manifest(path)
+        path.write_bytes(project_zip("oversized"))
+        with patch("cloud_render_production.MAX_MANIFEST", 1), self.assertRaises(JobError):
+            bundle_manifest(path)
+        path.write_bytes(project_zip("linked"))
+        with zipfile.ZipFile(path, "a") as archive:
+            entry = zipfile.ZipInfo("linked")
+            entry.create_system = 3
+            entry.external_attr = 0o120777 << 16
+            archive.writestr(entry, "../escape")
+        with self.assertRaises(JobError):
+            bundle_manifest(path)
 
     def test_pause_and_resume_survive_restart_and_cancel_queued_job(self):
         self.queue.scan(FOLDER)
@@ -375,3 +447,32 @@ class ProductionTest(unittest.TestCase):
         self.assertEqual(self.state(), "Completed")
         self.assertEqual(self.media.listing()["items"][0]["state"], "queued")
         self.media.pool.submit.assert_called_once_with(self.media._upload, job)
+
+
+class WorkerTransportErrorTests(unittest.TestCase):
+    def test_worker_http_rejection_reports_bounded_error_with_auth_and_no_redirects(self):
+        worker = Worker("https://fixture.salad.cloud", "fixture-token", "fixture-key", "/health/ready", 15)
+        response = Mock(status_code=422)
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        response.iter_content.return_value = [json.dumps({"error": "Unsupported renderer fixture\nretry later"}).encode()]
+        with patch("cloud_render_production.requests.request", return_value=response) as request:
+            with self.assertRaisesRegex(JobError, "HTTP 422.*Unsupported renderer fixture retry later"):
+                worker.request("POST", "/api/uploads/fixture/complete")
+        kwargs = request.call_args.kwargs
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer fixture-token")
+        self.assertEqual(kwargs["headers"]["Salad-Api-Key"], "fixture-key")
+        self.assertIs(kwargs["allow_redirects"], False)
+
+    def test_invalid_or_oversized_error_body_keeps_generic_transport_error(self):
+        worker = Worker("https://fixture.salad.cloud", "token", "", "/health/ready", 15)
+        for body in (b"<html>not JSON</html>", b"x" * 4097,
+                     b'{"error": ["not a string"]}', b"[" * 1500 + b"]" * 1500):
+            with self.subTest(body_length=len(body)):
+                response = Mock(status_code=422)
+                response.__enter__ = Mock(return_value=response)
+                response.__exit__ = Mock(return_value=False)
+                response.iter_content.return_value = [body]
+                with patch("cloud_render_production.requests.request", return_value=response):
+                    with self.assertRaisesRegex(JobError, r"Worker rejected the request \(HTTP 422\)\.$"):
+                        worker.request("POST", "/api/uploads/fixture/complete")

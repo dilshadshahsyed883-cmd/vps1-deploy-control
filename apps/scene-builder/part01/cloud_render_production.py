@@ -22,7 +22,6 @@ from fastapi import HTTPException
 LOG = logging.getLogger(__name__)
 MAX_ZIP = 4 * 1024 ** 3  # Concat GPU resumable upload limit
 MAX_MANIFEST = 64 * 1024 ** 2
-LEGACY_MANIFEST_LIMIT = 2 * 1024 ** 2
 MODE = "cuda-hybrid-v1"
 CHUNK = 8 * 1024 ** 2
 DRIVE_ID = re.compile(r"[A-Za-z0-9_-]{1,200}")
@@ -240,7 +239,22 @@ class Worker:
                 if code in (401, 403, 408, 409, 425, 429) or code >= 500:
                     raise WorkerWait(f"Worker unavailable or busy (HTTP {code}).")
                 if not 200 <= code < 300:
-                    raise JobError(f"Worker rejected the request (HTTP {code}).")
+                    # Relay bounded worker errors without interpreting render features.
+                    # Do not read an unbounded error body (including on stream requests).
+                    detail = ""
+                    try:
+                        body = bytearray()
+                        for chunk in response.iter_content(4096):
+                            body.extend(chunk)
+                            if len(body) > 4096:
+                                break
+                        payload = json.loads(body) if len(body) <= 4096 else None
+                        if isinstance(payload, dict) and isinstance(payload.get("error"), str):
+                            detail = " ".join(payload["error"].split())[:240]
+                    except (ValueError, RecursionError, requests.RequestException):
+                        pass
+                    suffix = ": " + detail if detail else "."
+                    raise JobError(f"Worker rejected the request (HTTP {code}){suffix}")
                 payload = response.json()
                 if not isinstance(payload, dict):
                     raise JobError("Worker returned an invalid API response.")
@@ -263,24 +277,11 @@ class Worker:
         if response.get("concurrency") != value:
             raise WorkerWait("Worker did not confirm the requested render concurrency.")
 
-    def upload(self, job, path, size, digest, manifest, checkpoint, uploading, submit):
+    def upload(self, job, path, size, digest, checkpoint, uploading, submit):
+        # Transport-only VPS bridge. Concat EXE and Salad worker own the
+        # render contract and media/effects validation; do not duplicate it here.
         checkpoint()
         self.request("GET", self.health)
-        caps = self.request("GET", "/api/capabilities")
-        # Earlier compatible CUDA workers validate manifests but do not
-        # advertise their fixed 2 MiB validation limit.
-        limit = caps.get("max_project_manifest_bytes", LEGACY_MANIFEST_LIMIT)
-        if (caps.get("api_version") != 1 or caps.get("validation_version") != 1
-                or 1 not in (caps.get("bundle_versions") or [])
-                or MODE not in (caps.get("render_modes") or []) or type(limit) is not int or limit <= 0):
-            raise JobError("Configured worker lacks the Concat CUDA hybrid upload and validation API.")
-        if len(manifest) > limit:
-            raise JobError(f"Project JSON exceeds this worker's {limit:,}-byte validation limit.")
-        validation = self.request("POST", "/api/validate", data=manifest,
-                                  headers={"Content-Type": "application/json"})
-        if validation.get("ok") is not True:
-            details = validation.get("errors") or ["Project is not CUDA compatible."]
-            raise JobError(f"GPU compatibility check failed. {str(details[0])[:300]}")
         checkpoint()
         uploading()
         root = "/api/uploads/" + job
@@ -556,10 +557,10 @@ class ProductionQueue:
                 with part.open("rb") as stream:
                     if hashlib.file_digest(stream, "md5").hexdigest() != row["drive_md5"]:
                         raise JobError("Drive ZIP content changed after the scan. Delete the job and scan again.")
-            manifest = bundle_manifest(part)
+            bundle_manifest(part)  # Keep secure ZIP structure/path/size checks.
             os.replace(part, path)
         else:
-            manifest = bundle_manifest(path)
+            bundle_manifest(path)
         digest = row["digest"]
         if not digest:
             with path.open("rb") as stream:
@@ -570,7 +571,7 @@ class ProductionQueue:
         if same:
             raise JobError("An identical Concat ZIP is already in Production.")
         self.update(job, state="Waiting for Worker", digest=digest)
-        worker.upload(remote_id, path, path.stat().st_size, digest, manifest,
+        worker.upload(remote_id, path, path.stat().st_size, digest,
                       lambda: self.checkpoint(job),
                       lambda: self.update(job, state="Uploading to GPU", endpoint=worker.endpoint),
                       lambda: self.checkpoint(job, submit=True))
@@ -585,7 +586,7 @@ class ProductionQueue:
         if row["cancel_requested"]:
             self.update(job, state="Cancelled")
             return
-        if state == "failed":
+        if state in ("failed", "waiting_for_gpu"):
             error = str(status.get("error") or "GPU render failed. Check the Salad worker logs.")
             self.update(job, state="Failed", error=error[:350], rerender=1)
         elif state in ("rendered", "delivery_failed"):
