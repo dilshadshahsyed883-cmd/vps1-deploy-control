@@ -1,0 +1,30 @@
+# Inert template. Install only for a pinned, tested source release.
+[Unit]
+Description=Canonical Drive read-only intake for Concat
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vps1scene
+Group=concatweb
+EnvironmentFile=/etc/concat-drive-bridge/bridge.env
+RuntimeDirectory=concat-drive-bridge
+RuntimeDirectoryMode=0750
+StateDirectory=concat-drive-bridge
+StateDirectoryMode=0700
+ExecStartPre=/usr/bin/rm -f /run/concat-drive-bridge/intake.sock
+# SCENE_SOURCE is the pinned release's apps/scene-builder/part01 directory.
+ExecStart=/opt/concat-drive-bridge/venv/bin/python /opt/concat-drive-bridge/concat_drive_bridge.py --scene-source ${SCENE_SOURCE}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/concat-drive-bridge /var/lib/fresh-website/scene-builder/worker-home
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
