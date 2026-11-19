@@ -4,6 +4,8 @@ import http.client
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 import socket
 import tempfile
 import threading
@@ -83,7 +85,7 @@ class BridgeTests(unittest.TestCase):
                     {"owner": "alice", "link": link},
                     {"owner": OWNER, "link": link, "remote": "other:"}):
             self.assertEqual(self.post("scan", obj)[0], 400)
-        self.assertEqual(self.post("upload", {"owner": OWNER})[0], 404)
+        self.assertEqual(self.post("upload-raw", {"owner": OWNER})[0], 404)
 
     def test_download_stream_integrity_and_private_cleanup(self):
         status, headers, data = self.post("download", {"owner": OWNER, "row": ROW})
@@ -109,6 +111,111 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(json.loads(data), {"error": "source_denied"})
         self.assertEqual(list(Path(self.temp.name).glob("intake-*")), [])
         self.assertNotIn(b"token-secret", data)
+
+
+    def post_mp4(self, data, *, owner=OWNER, job="test-1", name="s2.mp4",
+                 sha=None, md5=None, extras=None):
+        conn = UnixHTTP(self.path, timeout=10)
+        headers = {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(len(data)),
+            "X-Owner": owner,
+            "X-Job-ID": job,
+            "X-File-Name": name,
+            "X-Content-SHA256": sha or hashlib.sha256(data).hexdigest(),
+            "X-Content-MD5": md5 or hashlib.md5(data, usedforsecurity=False).hexdigest(),
+        }
+        headers.update(extras or {})
+        try:
+            conn.putrequest("POST", "/v1/upload")
+            for key, value in headers.items():
+                conn.putheader(key, value)
+            conn.endheaders()
+            conn.send(data)
+            response = conn.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            conn.close()
+
+    def test_fixed_concat_outputs_upload_is_verified_and_idempotent(self):
+        data = b"\x00\x00\x00\x18ftypisom" + b"test MP4 body" * 8
+        actual_md5 = hashlib.md5(data, usedforsecurity=False).hexdigest()
+        uploaded = []
+        stored = {"exists": False}
+        def fake_execute(command, timeout):
+            if command[1] == "lsjson":
+                if not stored["exists"]:
+                    missing = RuntimeError("Private Drive item not found")
+                    missing.category = "remote_file_absent"
+                    raise missing
+                return json.dumps({"Size": len(data), "Hashes": {"MD5": actual_md5}})
+            if command[1] == "copyto":
+                self.assertEqual(command[0:2], ["rclone", "copyto"])
+                self.assertEqual(command[-1], "--immutable")
+                self.assertEqual(Path(command[2]).read_bytes(), data)
+                uploaded.append(command)
+                stored["exists"] = True
+                return ""
+            raise AssertionError("unexpected canonical command")
+        self.execute.side_effect = fake_execute
+        with patch("production.concat_drive_bridge.shutil.disk_usage",
+                   return_value=SimpleNamespace(free=50 * 1024**3)):
+            status, reply = self.post_mp4(
+                data, extras={"X-Destination": "gdrive:arbitrary/private"})
+            self.assertEqual(status, 200)
+            expected = "gdrive:Concat Outputs/" + OWNER + "/test-1_s2.mp4"
+            self.assertEqual(reply["remote"], expected)
+            self.assertEqual(reply["md5"], actual_md5)
+            self.assertEqual(uploaded[0][3], expected)
+            status, second = self.post_mp4(data)
+            self.assertEqual(status, 200)
+            self.assertEqual(second["remote"], expected)
+            self.assertEqual(len(uploaded), 1)
+        self.wait_for_idle()
+        self.assertEqual(list(Path(self.temp.name).glob("output-*")), [])
+
+    def test_denied_malformed_or_tampered_mp4_never_uploaded(self):
+        data = b"\x00\x00\x00\x18ftypisom" + b"test"
+        self.execute.reset_mock()
+        with patch("production.concat_drive_bridge.shutil.disk_usage",
+                   return_value=SimpleNamespace(free=50 * 1024**3)):
+            for changes in (
+                {"owner": "b" * 63},
+                {"job": "../bad"},
+                {"name": "../bad.mp4"},
+                {"name": "forbidden.zip"},
+                {"sha": "0" * 64},
+                {"md5": "0" * 32},
+            ):
+                with self.subTest(changes=changes):
+                    status, _ = self.post_mp4(data, **changes)
+                    self.assertIn(status, (400, 422))
+            status, response = self.post_mp4(b"not an mp4 container")
+            self.assertEqual(status, 422)
+            self.assertEqual(response["error"], "invalid_mp4")
+        self.execute.assert_not_called()
+        self.wait_for_idle()
+        self.assertEqual(list(Path(self.temp.name).glob("output-*")), [])
+
+    def test_existing_drive_conflict_is_never_overwritten(self):
+        data = b"\x00\x00\x00\x18ftypisom" + b"test"
+        self.execute.side_effect = lambda command, timeout: json.dumps(
+            {"Size": len(data), "Hashes": {"MD5": "0" * 32}}
+        ) if command[1] == "lsjson" else None
+        with patch("production.concat_drive_bridge.shutil.disk_usage",
+                   return_value=SimpleNamespace(free=50 * 1024**3)):
+            status, response = self.post_mp4(data)
+            self.assertEqual(status, 409)
+            self.assertEqual(response["error"], "remote_conflict")
+        self.assertEqual([x.args[0][1] for x in self.execute.call_args_list],
+                         ["lsjson"])
+
+    def test_wrong_peer_uid_cannot_upload_output(self):
+        data = b"\x00\x00\x00\x18ftypisom" + b"test"
+        self.server.uid = os.getuid() + 1
+        with self.assertRaises((OSError, http.client.HTTPException)):
+            self.post_mp4(data)
+        self.execute.assert_not_called()
 
     def test_no_caller_paths_or_malformed_rows(self):
         for updates in ({"destination": "/etc/passwd"}, {"drive_id": "../x"},
