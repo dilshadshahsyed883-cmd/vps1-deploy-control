@@ -25,6 +25,10 @@ from .oauth_web import (complete_oauth, list_clients, list_owner_clients,
     save_shared_client_json, start_oauth)
 from .project_store import ProjectStore
 from .copyright_handoff import available_videos, available_folders, owner_root, owner_folder, safe_relative_folder
+from .concat_source import stage_concat_link
+from .concat_schedule import concat_publish_at
+from .concat_sheet import preview_sheet_videos
+from .concat_source import parse_concat_link, ConcatSourceError
 from .copyright_ui import schedule_pkt
 from .copyright_vault import owner_vault_inventory, import_client as import_owner_client, import_token as import_owner_token
 from .four_modes import registry as four_mode_registry, validate_mode as validate_auto_mode
@@ -99,8 +103,10 @@ from .auto_engine_v6 import (
     shortstudio_list_folders as v6_shortstudio_list_folders,
 )
 
-app = FastAPI(title="Copyright Uploader", version=BUILD, docs_url=None, redoc_url=None)
-v6_store = V6Store()
+IS_COPYRIGHT = os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
+OWNER_SCOPED = IS_COPYRIGHT or os.getenv("LUM_ENGINE_INSTANCE") == "concat"
+app = FastAPI(title="Concat Uploader" if os.getenv("LUM_ENGINE_INSTANCE") == "concat" else "Copyright Uploader", version=BUILD, docs_url=None, redoc_url=None)
+v6_store = None if os.getenv("LUM_ENGINE_INSTANCE") == "concat" else V6Store()
 app.mount(route("/static"), StaticFiles(directory=str(STATIC_ROOT)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATE_ROOT))
 templates.env.globals["base_path"] = BASE_PATH
@@ -246,13 +252,13 @@ def project_view(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_projects(user: dict[str, Any], limit: int = 500) -> list[dict[str, Any]]:
-    owner = (str(user["username"]) if os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
+    owner = (str(user["username"]) if OWNER_SCOPED
              else (None if int(user.get("is_admin") or 0) else str(user["username"])))
     return [project_view(p) for p in store.list(owner=owner, limit=limit)]
 
 
 def get_logs(user: dict[str, Any], limit: int = 300) -> list[dict[str, Any]]:
-    owner = (str(user["username"]) if os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
+    owner = (str(user["username"]) if OWNER_SCOPED
              else (None if int(user.get("is_admin") or 0) else str(user["username"])))
     return store.events(owner=owner, limit=limit)
 
@@ -260,23 +266,23 @@ def get_logs(user: dict[str, Any], limit: int = 300) -> list[dict[str, Any]]:
 def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
     channels = all_channels(user)
     owner = (str(user.get("username") or "") if user is not None and
-             (os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0))
+             (OWNER_SCOPED or not int(user.get("is_admin") or 0))
              else None)
     counts=store.counts(owner=owner)
     return {
         "counts": counts,
-        "owner_queue_paused": store.owner_queue_paused(str(user["username"])) if user is not None and os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else False,
+        "owner_queue_paused": store.owner_queue_paused(str(user["username"])) if user is not None and OWNER_SCOPED else False,
         "channels": len(channels),
         "authenticated_channels": sum(1 for c in channels if str(c.get("token_status") or "").lower().startswith("valid")),
         "active_project_id": (worker.active_project_id if user is None or
-            (int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "copyright")
+            (int(user.get("is_admin") or 0) and not OWNER_SCOPED)
             else None),
         "engine_enabled": store.setting("engine_enabled", "1") == "1",
         "pause_after_current": store.setting("pause_after_current", "0") == "1",
         "settings": ({"sheets_sync_enabled": "1", "auto_engine_enabled": "1",
                        "pause_after_current": store.setting("pause_after_current", "0"),
                        "engine_enabled": store.setting("engine_enabled", "1")}
-                     if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and user is not None
+                     if OWNER_SCOPED and user is not None
                      else (store.settings() if user is None or int(user.get("is_admin") or 0) else {})),
     }
 
@@ -284,18 +290,24 @@ def stats_payload(user: dict[str, Any] | None = None) -> dict[str, Any]:
 @app.middleware("http")
 async def standalone_auth(request: Request, call_next):
     path = request.url.path
-    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and (
+    if os.getenv("LUM_ENGINE_INSTANCE") == "concat" and (
+        path.startswith(route("/actions/copyright/profile")) or
+        path.startswith(route("/api/copyright/")) or
+        path.startswith(route("/actions/pc-sync/"))
+    ):
+        return JSONResponse({"detail": "Not available in Concat Uploader"}, status_code=404)
+    if OWNER_SCOPED and (
         path.startswith(route("/actions/auto-v6/")) or
         path.startswith(route("/api/auto-v6")) or
         path.startswith(route("/modes/")) or
         path.startswith(route("/actions/pc-sync/"))
     ):
         return JSONResponse({"detail": "Automatic uploader engine is disabled for Copyright Studio"}, status_code=404)
-    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and (
+    if OWNER_SCOPED and (
         path.startswith(route("/reports/")) or path == route("/actions/report-health")
     ):
         return JSONResponse({"detail": "Global health reports are unavailable in owner-scoped Copyright Studio"},status_code=404)
-    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and request.method not in {"GET", "HEAD"} and path in {
+    if OWNER_SCOPED and request.method not in {"GET", "HEAD"} and path in {
         route("/actions/google-oauth/configure"), route("/actions/channels/json-upload"),
         route("/actions/pc-sync/upload"), route("/actions/pc-sync/apply"),
         route("/actions/pause-after-current"), route("/actions/resume"), route("/actions/stop-current"),
@@ -310,7 +322,9 @@ async def standalone_auth(request: Request, call_next):
         is_admin = str(request.headers.get("X-Is-Admin") or "0").strip().lower() in {"1", "true", "yes", "on"}
         if not username:
             return RedirectResponse(SUITE_LOGIN_URL, status_code=303)
-        if not is_admin and app_access not in {"lum", "all"}:
+        if not is_admin and app_access not in ({"concat", "concat-studio", "all"} if os.getenv("LUM_ENGINE_INSTANCE") == "concat" else {"lum", "all"}):
+            if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+                return JSONResponse({"detail": "Concat Studio access required"}, status_code=403)
             raise HTTPException(403, "Local Upload Manager access required")
         mapped = users.get_by_username(username)
         user = {
@@ -490,7 +504,7 @@ def root() -> RedirectResponse:
 
 
 @app.get(route("/app"), response_class=HTMLResponse)
-def app_page(request: Request, tab: str = "", message: str = "", error: str = "", embedded: int = 0, source_id: int = 0, auto_profile_id: int = 0, new_profile: int = 0, auto_mode: str = "engine1", profile_id: int = 0):
+def app_page(request: Request, tab: str = "", message: str = "", error: str = "", embedded: int = 0, source_id: int = 0, auto_profile_id: int = 0, new_profile: int = 0, auto_mode: str = "engine1", profile_id: int = 0, preview_concat: int = 0, concat_video_link: str = "", concat_title: str = ""):
     user = current_user(request)
     if SUITE_AUTH_ENABLED and embedded:
         request.session["lum_embedded"] = "1"
@@ -499,7 +513,9 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
     allowed = {"dashboard", "channels", "sheets", "auto_engine", "add_video", "bulk_import", "queue", "logs", "auto_stream"}
     if os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "copyright":
         allowed = {"dashboard", "channels", "sheets", "add_video", "queue", "logs"}
-    default_tab = "add_video"
+    elif os.getenv("LUM_ENGINE_INSTANCE", "engine1") == "concat":
+        allowed = {"channels", "sheets", "add_video", "queue"}
+    default_tab = "sheets" if os.getenv("LUM_ENGINE_INSTANCE") == "concat" else "add_video"
     selected = tab if tab in allowed else default_tab
     channels = all_channels(user)
     projects = get_projects(user)
@@ -512,15 +528,15 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         if selected_sheet_source and int(selected_sheet_source["id"]) not in permitted_sheets:
             selected_sheet_source=None
     permitted_channels=studio_tenants.allowed_ids("channel",user)
-    web_clients = (list_owner_clients(str(user["username"])) if os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
+    web_clients = (list_owner_clients(str(user["username"])) if OWNER_SCOPED
                    else (list_clients() if permitted_channels is None else []))
     channel_context = channels_page_context(
         db, web_clients, permitted_channels, permitted_sheets,
         inventory_channels=channels if os.getenv("LUM_ENGINE_INSTANCE") in
-            {"song", "shortstudio", "copyright"} else None,
-        prefer_stored_token_paths=os.getenv("LUM_ENGINE_INSTANCE") == "copyright",
+            {"song", "shortstudio", "copyright", "concat"} else None,
+        prefer_stored_token_paths=OWNER_SCOPED,
     ) if (selected == "channels" or (selected == "add_video" and
-             os.getenv("LUM_ENGINE_INSTANCE") == "copyright")) else {
+             OWNER_SCOPED)) else {
         "rows": [], "summary": {}, "groups": [], "sheets": [], "oauth_inventory": {}
     }
     if permitted_channels is not None:
@@ -531,21 +547,21 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
                                    if int(item.get("id") or 0) in permitted_groups]
         channel_context["sheets"]=[item for item in channel_context["sheets"]
                                    if int(item.get("id") or 0) in permitted_sheets]
-        if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        if not OWNER_SCOPED:
             channel_context["summary"]={"total":len(channel_context["rows"])}
             web_clients=[]  # Other instances expose the shared client only to global admins
         channel_context["oauth_inventory"]=(owner_vault_inventory(db,studio_tenants,str(user["username"]))
-            if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else {})
+            if OWNER_SCOPED else {})
     # PC Sync is a global administrator operation; its history may contain
     # private channel identifiers and source paths from other accounts.
     pc_sync_history = (list_sync_history() if selected == "channels" and
-                       int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "copyright" else [])
+                       int(user.get("is_admin") or 0) and not OWNER_SCOPED else [])
     try:
         selected_auto_mode = validate_auto_mode(auto_mode)
     except ValueError:
         raise HTTPException(status_code=400, detail="Unknown uploader mode")
     engine_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1")
-    if engine_instance in {"engine2", "shorts", "song", "shortstudio", "copyright"}:
+    if engine_instance in {"engine2", "shorts", "song", "shortstudio", "copyright", "concat"}:
         # Independent uploaders cannot access Auto Stream.
         if selected == "auto_stream":
             raise HTTPException(404, "Auto Stream is not an uploader engine")
@@ -644,6 +660,27 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         auto_v6["eligible_channels"] = 0
     if selected_sheet_source and not any(int(x.get("id") or 0) == int(selected_sheet_source.get("id") or 0) for x in sheet_sources):
         selected_sheet_source = None
+    # Owner-scoped optional Concat link preview from the SAME first-tab Sheets
+    # CSV engine. Preview never creates queue rows or contacts arbitrary URLs.
+    concat_sheet_videos = []
+    concat_sheet_error = ""
+    if (engine_instance == "concat" and selected == "sheets"
+            and selected_sheet_source and int(preview_concat or 0) == 1):
+        try:
+            studio_tenants.require("sheet", int(selected_sheet_source["id"]), user)
+            raw = tenant_fetch_sheet_csv(selected_sheet_source["sheet_url_or_id"], None)
+            concat_sheet_videos = preview_sheet_videos(
+                raw, origin=os.getenv("CONCAT_PUBLIC_ORIGIN", "https://app.scenebuilder.online"))
+        except Exception:
+            concat_sheet_error = "Sheet preview is unavailable; check access and retry Sync"
+    concat_source_prefill = ""
+    if engine_instance == "concat" and selected == "add_video" and concat_video_link:
+        try:
+            parse_concat_link(concat_video_link,
+                              origin=os.getenv("CONCAT_PUBLIC_ORIGIN", "https://app.scenebuilder.online"))
+            concat_source_prefill = concat_video_link
+        except ConcatSourceError:
+            pass
     return templates.TemplateResponse("app.html", {
         "request": request,
         "user": user,
@@ -658,6 +695,10 @@ def app_page(request: Request, tab: str = "", message: str = "", error: str = ""
         "projects": projects,
         "logs": logs,
         "sheet_sources": sheet_sources,
+        "concat_sheet_videos": concat_sheet_videos,
+        "concat_sheet_error": concat_sheet_error,
+        "concat_source_prefill": concat_source_prefill,
+        "concat_title_prefill": str(concat_title or "")[:100],
         "selected_sheet_source": selected_sheet_source,
         "channel_rows": channel_context["rows"],
         "channel_summary": channel_context["summary"],
@@ -785,7 +826,7 @@ def action_report_health(request: Request, csrf_token: str = Form(...)):
 @app.get(route("/api/copyright/folder-videos"))
 def copyright_folder_videos(request: Request):
     user = current_user(request)
-    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+    if not OWNER_SCOPED:
         raise HTTPException(404, "Not found")
     folder = str(request.query_params.get("folder") or "")
     try:
@@ -824,7 +865,7 @@ def copyright_update_profile(
     metadata_source: str = Form("manual"),
 ):
     user = current_user(request); require_csrf(request, csrf_token)
-    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+    if not OWNER_SCOPED:
         raise HTTPException(404,"Not found")
     try:
         if not store.update_copyright_profile(str(user["username"]),profile_id,profile_name,group_name,metadata_source):
@@ -837,7 +878,7 @@ def copyright_update_profile(
 @app.post(route("/actions/copyright/profile/delete"))
 def copyright_delete_profile(request: Request,csrf_token: str = Form(...), profile_id: int = Form(...)):
     user = current_user(request); require_csrf(request,csrf_token)
-    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+    if not OWNER_SCOPED:
         raise HTTPException(404,"Not found")
     if not store.delete_copyright_profile(str(user["username"]),profile_id):
         return redirect("/app?tab=profiles",error="Profile does not belong to this account")
@@ -852,6 +893,7 @@ async def add_video(
     group_name: str = Form(""), thumbnail: UploadFile | None = File(default=None),
     source_mode: str = Form("drive_link"), video_file: UploadFile | None = File(default=None),
     folder_file: str = Form(""), vps_folder: str = Form(""), profile_id: int = Form(0),
+    concat_video_link: str = Form(""), timezone_name: str = Form("Asia/Karachi"),
 ):
     user = current_user(request); require_csrf(request, csrf_token)
     thumb_path = ""
@@ -862,19 +904,33 @@ async def add_video(
     try:
         upload_instance = os.getenv("LUM_ENGINE_INSTANCE", "engine1").strip().lower()
         studio_tenants.require("channel",int(channel_db_id),user)
-        if upload_instance == "copyright":
+        if upload_instance in {"copyright", "concat"}:
             # Group selection is authoritative server-side, never a client-only filter.
             membership = db.channel_group_names_map()
             memberships = [name.strip().casefold() for name in
                            str(membership.get(int(channel_db_id)) or "").replace(";",",").replace("|",",").split(",")]
             if not str(group_name or "").strip() or str(group_name).strip().casefold() not in memberships:
                 raise ValueError("Select a group containing the selected owned channel")
+            if upload_instance == "concat" and profile_id:
+                raise ValueError("Concat Uploader does not support upload profiles")
             if profile_id:
                 profile = store.copyright_profile(str(user["username"]), int(profile_id))
                 if not profile:
                     raise ValueError("Upload profile not found for current account")
                 group_name = str(profile["group_name"])
-            if source_mode == "drive_link":
+            if upload_instance == "concat":
+                if (source_mode != "concat_link" or not concat_video_link.strip() or drive_url.strip()
+                        or folder_file or vps_folder or (video_file and video_file.filename)):
+                    raise ValueError("Use only an authorized Concat Video Link")
+                cloud_root = os.getenv("CONCAT_CLOUD_RENDER_ROOT", "")
+                if not cloud_root:
+                    raise ValueError("Owner-verified Cloud Render handoff is not configured")
+                owned_staging, source_original, source_size, fingerprint = stage_concat_link(
+                    concat_video_link, str(user["username"]), STAGING_ROOT,
+                    cloud_root=Path(cloud_root),
+                    origin=os.getenv("CONCAT_PUBLIC_ORIGIN", "https://app.scenebuilder.online"),
+                )
+            elif source_mode == "drive_link":
                 if not drive_url.strip():
                     raise ValueError("Google Drive URL required")
                 fingerprint = hashlib.sha256(("drive:" + drive_url.strip()).encode()).hexdigest()
@@ -921,6 +977,11 @@ async def add_video(
             if _pkt_value.tzinfo is None:
                 _pkt_value = _pkt_value.replace(tzinfo=_PktZoneInfo("Asia/Karachi"))
             app_upload_at_utc = _pkt_value.astimezone(_pkt_utc.utc).replace(microsecond=0).isoformat()
+        publish_at_utc = ""
+        if upload_instance == "concat":
+            publish_at_utc = concat_publish_at(app_upload_at, timezone_name, privacy_status)
+            # Concat schedules YouTube PUBLICATION, not the start of VPS upload.
+            app_upload_at_utc = ""
         project_id = store.create_project({
             "owner_username": str(user["username"]), "ui_mode": user_mode(user),
             "source_mode": "local_file" if owned_staging else "drive_link",
@@ -930,6 +991,7 @@ async def add_video(
             "source_origin": source_mode, "vps_folder": vps_folder if source_mode == "folder" else "",
             "title": title, "description": description, "tags": tags, "category_id": category_id,
             "privacy_status": privacy_status, "app_upload_at": app_upload_at_utc,
+            "publish_at": publish_at_utc,
             "made_for_kids": str(made_for_kids).lower() in {"1", "true", "on", "yes"},
             "playlist_id": playlist_id, "channel_db_id": channel_db_id, "group_name": group_name,
         })
@@ -957,7 +1019,7 @@ async def add_video(
 async def upload_oauth_client(request: Request, csrf_token: str = Form(...), client_json: UploadFile = File(...)):
     user = current_user(request); require_csrf(request, csrf_token)
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+        if OWNER_SCOPED:
             result = save_owner_client_json(str(user["username"]), await client_json.read())
             message = f"Your private OAuth client is ready: {result['filename']}"
         else:
@@ -1013,7 +1075,7 @@ def oauth_start_action(
             target_channel_db_id=target_id,
             target_email=target_email,
             client_path=(owner_client_for_oauth(str(user["username"]))
-                         if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" else None),
+                         if OWNER_SCOPED else None),
             owner_username=str(user["username"]),
         )
         request.session["lum_oauth_url"] = result["authorization_url"]
@@ -1061,7 +1123,7 @@ def _owned_or_admin(user: dict[str, Any], project_id: int) -> dict[str, Any]:
     project = store.get(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
-    if (os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0)) and str(project.get("owner_username") or "").lower() != str(user.get("username") or "").lower():
+    if (OWNER_SCOPED or not int(user.get("is_admin") or 0)) and str(project.get("owner_username") or "").lower() != str(user.get("username") or "").lower():
         raise HTTPException(403, "Project does not belong to this user")
     return project
 
@@ -1069,7 +1131,7 @@ def _owned_or_admin(user: dict[str, Any], project_id: int) -> dict[str, Any]:
 @app.post(route("/actions/copyright/queue/pause"))
 def copyright_pause_my_queue(request: Request, csrf_token: str = Form(...)):
     user = current_user(request); require_csrf(request, csrf_token)
-    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+    if not OWNER_SCOPED:
         raise HTTPException(404, "Not found")
     store.set_owner_queue_paused(str(user["username"]), True)
     return redirect("/app?tab=queue",
@@ -1079,8 +1141,10 @@ def copyright_pause_my_queue(request: Request, csrf_token: str = Form(...)):
 @app.post(route("/actions/copyright/queue/start"))
 def copyright_start_my_queue(request: Request, csrf_token: str = Form(...)):
     user = current_user(request); require_csrf(request, csrf_token)
-    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+    if not OWNER_SCOPED:
         raise HTTPException(404, "Not found")
+    if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+        store.set_setting("engine_enabled", "1")  # Only this dedicated Concat instance.
     if store.setting("engine_enabled", "1") != "1":
         return redirect("/app?tab=queue", error="Shared worker is paused; your queue cannot be started until it is available.")
     store.set_owner_queue_paused(str(user["username"]), False)
@@ -1094,7 +1158,7 @@ def copyright_edit_metadata(
     category_id: str = Form("22"), privacy_status: str = Form("private"),
 ):
     user = current_user(request); require_csrf(request, csrf_token)
-    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+    if not OWNER_SCOPED:
         raise HTTPException(404, "Not found")
     # Unlike admin cross-tenant inspection, editing is *always* owner-only.
     project = store.get(project_id)
@@ -1130,7 +1194,7 @@ def _copyright_retry_owned_project(project_id: int, project: dict[str, Any]) -> 
 @app.post(route("/actions/copyright/queue/bulk"))
 async def copyright_bulk_queue(request: Request):
     user = current_user(request)
-    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+    if not OWNER_SCOPED:
         raise HTTPException(404, "Not found")
     form = await request.form()
     require_csrf(request, str(form.get("csrf_token") or ""))
@@ -1176,7 +1240,7 @@ async def copyright_bulk_queue(request: Request):
 def copyright_remove_terminal_job(request: Request, csrf_token: str = Form(...), project_id: int = Form(...)):
     user = current_user(request)
     require_csrf(request,csrf_token)
-    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+    if not OWNER_SCOPED:
         raise HTTPException(404, "Not found")
     _owned_or_admin(user,project_id)
     if store.archive_terminal(project_id,str(user["username"])):
@@ -1199,7 +1263,7 @@ def retry_project(project_id: int, request: Request, csrf_token: str = Form(...)
 def cancel_waiting_project(project_id: int, request: Request, csrf_token: str = Form(...)):
     user = current_user(request)
     require_csrf(request, csrf_token)
-    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+    if not OWNER_SCOPED:
         raise HTTPException(404, "Not found")
     project = _owned_or_admin(user, project_id)
     if store.cancel_waiting(project_id, str(project["owner_username"])):
@@ -1260,7 +1324,7 @@ def sheets_save(
         sid = int(source_id) if str(source_id or "").strip() else None
         if sid:
             studio_tenants.require("sheet",sid,user)
-        elif os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0):
+        elif OWNER_SCOPED or not int(user.get("is_admin") or 0):
             existing={str(row.get("sheet_url_or_id") or "").strip()
                       for row in db.list_sheet_sources()}
             if str(sheet_url_or_id or "").strip() in existing:
@@ -1272,7 +1336,7 @@ def sheets_save(
             sheet_url_or_id=sheet_url_or_id,
             enabled=str(enabled).lower() in {"1", "true", "on", "yes"},
         )
-        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0):
+        if OWNER_SCOPED or not int(user.get("is_admin") or 0):
             studio_tenants.bind("sheet",int(saved_id),user["username"])
         return redirect(
             f"/app?tab=sheets&source_id={saved_id}",
@@ -1294,7 +1358,7 @@ def sheets_delete(
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
         studio_tenants.require("sheet",int(source_id),user)
-        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" or not int(user.get("is_admin") or 0):
+        if OWNER_SCOPED or not int(user.get("is_admin") or 0):
             studio_tenants.delete_owned_sheet(user["username"],int(source_id))
         else:
             web_delete_sheet_source(db,int(source_id))
@@ -1322,7 +1386,7 @@ def sheets_sync(
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE") != "copyright" and int(user.get("is_admin") or 0):
+        if not OWNER_SCOPED and int(user.get("is_admin") or 0):
             result=web_sync_sheet_source_by_id(db,int(source_id))
         else:
             studio_tenants.require("sheet",int(source_id),user)
@@ -1335,7 +1399,7 @@ def sheets_sync(
             prepared=tenant_rows_to_sheet_rows(raw,str(tenant_token_dir))
             result=studio_tenants.sync_owned_sheet_rows(
                 user["username"],int(source_id),prepared,
-                sync_sheet_groups=os.getenv("LUM_ENGINE_INSTANCE") == "copyright")
+                sync_sheet_groups=OWNER_SCOPED)
         if result.get("ok"):
             return redirect(
                 f"/app?tab=sheets&source_id={int(source_id)}",
@@ -1360,7 +1424,7 @@ def sheets_sync_all(request: Request, csrf_token: str = Form(...)):
             error="Enable Sheets Sync on Dashboard before running synchronization.",
         )
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+        if OWNER_SCOPED:
             allowed = studio_tenants.allowed_ids("sheet", user)
             sources = [src for src in db.list_sheet_sources()
                        if int(src.get("id") or 0) in (allowed or set())
@@ -1415,7 +1479,8 @@ def studio_tenant_channel_create(request: Request,csrf_token: str=Form(...),
                                  google_account_email: str=Form("")):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
-        raise HTTPException(404,"Not found")
+        if os.getenv("LUM_ENGINE_INSTANCE") != "concat":
+            raise HTTPException(404,"Not found")
     try:
         cid=studio_tenants.create_channel(user["username"],channel_id,channel_name,
                                           google_account_email)
@@ -1429,7 +1494,8 @@ def studio_tenant_group_create(request: Request,csrf_token: str=Form(...),
                                group_name: str=Form(...),channel_ids: list[int]=Form([])):
     user=current_user(request); require_csrf(request,csrf_token); require_heavy(user)
     if os.getenv("LUM_ENGINE_INSTANCE") not in {"song","shortstudio","copyright"}:
-        raise HTTPException(404,"Not found")
+        if os.getenv("LUM_ENGINE_INSTANCE") != "concat":
+            raise HTTPException(404,"Not found")
     try:
         gid=studio_tenants.create_group(user["username"],group_name,channel_ids)
         return redirect("/app?tab=channels",message=f"Private channel group #{gid} created for this account.")
@@ -1448,7 +1514,7 @@ def studio_tenant_grant(
 ):
     """Admin explicitly assigns an idle legacy resource without touching media."""
     user=current_user(request); require_admin(user); require_csrf(request,csrf_token)
-    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+    if OWNER_SCOPED:
         raise HTTPException(404, "Copyright Uploader uses independent user-owned resources")
     try:
         kind,entity_id=studio_tenants.identity(entity_kind,entity_id)
@@ -1522,7 +1588,7 @@ def channels_status(
         for channel_id in channel_ids:
             studio_tenants.require("channel",channel_id,user)
         updated=set_status_bulk(db, channel_ids, status,
-            prefer_stored_token_paths=os.getenv("LUM_ENGINE_INSTANCE") == "copyright")
+            prefer_stored_token_paths=OWNER_SCOPED)
         return redirect("/app?tab=channels", message=f"Updated {updated} channel(s) to {str(status).upper()}.")
     except Exception as exc:
         return redirect("/app?tab=channels", error=str(exc))
@@ -1560,7 +1626,7 @@ def channels_rescan_tokens(
 ):
     user=current_user(request); require_csrf(request, csrf_token); require_heavy(user)
     try:
-        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and str(scope).lower()=="all_missing":
+        if OWNER_SCOPED and str(scope).lower()=="all_missing":
             ids=sorted(studio_tenants.allowed_ids("channel",user) or [])
         else:
             if str(scope).lower()=="all_missing" and not int(user.get("is_admin") or 0):
@@ -1568,9 +1634,9 @@ def channels_rescan_tokens(
             ids=None if str(scope).lower()=="all_missing" else channel_ids
         for channel_id in (ids or []):
             studio_tenants.require("channel",channel_id,user)
-        if os.getenv("LUM_ENGINE_INSTANCE") == "copyright" and not ids:
+        if OWNER_SCOPED and not ids:
             return redirect("/app?tab=channels",message="No owned channels need scanning.")
-        copyright_private = os.getenv("LUM_ENGINE_INSTANCE") == "copyright"
+        copyright_private = OWNER_SCOPED
         result=rescan_channel_tokens(db, ids, prefer_stored_token_paths=copyright_private)
         summary = (
             f"Token scan · checked {result['checked']} · valid {result['valid']} · "
@@ -1659,7 +1725,7 @@ async def copyright_credentials_upload(
     """PC JSON restoration with identical admin/member controls and private owner mapping."""
     user = current_user(request)
     require_csrf(request, csrf_token)
-    if os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+    if not OWNER_SCOPED:
         raise HTTPException(404, "Not found")
     kind = str(secret_kind or "").strip().lower()
     if kind not in {"client", "token"}:
@@ -2508,7 +2574,7 @@ def auto_v6_missed_skip(request: Request,csrf_token: str=Form(...),missed_id: in
 @app.post(route("/actions/settings"))
 def save_settings(request: Request, csrf_token: str = Form(...), sheets_sync_enabled: str = Form("0"), auto_engine_enabled: str = Form("0"), bulk_import_enabled: str = Form("0"), delete_staged_after_verified: str = Form("1")):
     user = current_user(request); require_csrf(request, csrf_token); require_heavy(user)
-    if os.getenv("LUM_ENGINE_INSTANCE") == "copyright":
+    if OWNER_SCOPED:
         raise HTTPException(404, "Copyright uploader mode settings are fixed")
     settings = {
         "sheets_sync_enabled": sheets_sync_enabled,

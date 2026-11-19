@@ -86,6 +86,8 @@ class ProjectStore:
             columns = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
             if "source_fingerprint" not in columns:
                 conn.execute("ALTER TABLE projects ADD COLUMN source_fingerprint TEXT NOT NULL DEFAULT ''")
+            if "publish_at" not in columns:
+                conn.execute("ALTER TABLE projects ADD COLUMN publish_at TEXT NOT NULL DEFAULT ''")
             if "source_origin" not in columns:
                 conn.execute("ALTER TABLE projects ADD COLUMN source_origin TEXT NOT NULL DEFAULT ''")
             if "vps_folder" not in columns:
@@ -164,6 +166,8 @@ class ProjectStore:
                 "SELECT paused FROM copyright_owner_queues WHERE owner_username=?",
                 (owner.strip(),),
             ).fetchone()
+        if row is None and os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+            return True  # No Concat queue is ever armed before the owner clicks Start.
         return bool(row and int(row["paused"]))
 
     def set_owner_queue_paused(self, owner: str, paused: bool) -> None:
@@ -190,6 +194,13 @@ class ProjectStore:
             raise ValueError("Invalid visibility")
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+                current = conn.execute(
+                    "SELECT publish_at FROM projects WHERE id=? AND owner_username=? COLLATE NOCASE",
+                    (int(project_id), owner),
+                ).fetchone()
+                if current and str(current["publish_at"] or "").strip() and privacy_status != "public":
+                    raise ValueError("Scheduled Concat YouTube releases must remain Public; cancel and recreate to change the schedule")
             cursor = conn.execute("""
                 UPDATE projects SET title=?,description=?,tags=?,category_id=?,
                     privacy_status=?,updated_at=?
@@ -240,26 +251,33 @@ class ProjectStore:
             str(data.get("source_fingerprint") or ""),
             str(data.get("source_origin") or ""),
             str(data.get("vps_folder") or ""),
+            str(data.get("publish_at") or ""),
         )
         if not values[0]:
             raise ValueError("Project owner is required")
         if values[13] <= 0:
             raise ValueError("Channel is required")
-        if values[-2] not in {"folder", "pc_upload", "drive_link", ""}:
+        if values[-3] not in {"folder", "pc_upload", "drive_link", "concat_link", ""}:
             raise ValueError("Invalid source origin")
-        if values[-2] == "folder" and not str(data.get("source_file_name") or ""):
+        if values[-3] == "folder" and not str(data.get("source_file_name") or ""):
             raise ValueError("Folder video name is required")
         with self.connect() as conn:
             try:
                 cur = conn.execute("""
                 INSERT INTO projects(owner_username,ui_mode,source_mode,drive_url,thumbnail_path,title,description,tags,
                     category_id,privacy_status,app_upload_at,made_for_kids,playlist_id,channel_db_id,group_name,status,created_at,updated_at,
-                    staging_path,source_file_name,source_file_size,source_fingerprint,source_origin,vps_folder)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    staging_path,source_file_name,source_file_size,source_fingerprint,source_origin,vps_folder,publish_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, values)
             except sqlite3.IntegrityError as exc:
                 raise ValueError("This video was already queued or uploaded to the selected channel") from exc
             project_id = int(cur.lastrowid)
+            # Concat is manual-start even if this owner started a previous batch.
+            # Set the pause gate in the SAME transaction as queue admission.
+            if os.getenv("LUM_ENGINE_INSTANCE") == "concat":
+                conn.execute("""INSERT INTO copyright_owner_queues(owner_username,paused)
+                    VALUES(?,1) ON CONFLICT(owner_username)
+                    DO UPDATE SET paused=1""", (values[0],))
             conn.execute("INSERT INTO project_events(project_id,level,message,created_at) VALUES(?,?,?,?)", (project_id,"INFO","Project accepted into VPS queue",stamp))
             return project_id
 
