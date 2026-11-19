@@ -1,0 +1,24 @@
+# Create a unique, DNS-verified remote host only. DO NOT replace any existing Nginx site.
+# This template expects an already valid TLS certificate for the chosen hostname.
+# Set real certificate paths after CA validation on the isolated host.
+server {
+    listen 443 ssl http2;
+    server_name remote.scenebuilder.online;
+    ssl_certificate /etc/letsencrypt/live/remote.scenebuilder.online/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/remote.scenebuilder.online/privkey.pem;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:5123;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_buffering off;
+        client_max_body_size 64k;
+    }
+}
+# HTTP->HTTPS redirect must be added separately after domain and TLS verification.

@@ -1,0 +1,12 @@
+# Never upload real relay credentials, screenshots, or binaries.
+secrets/*
+!secrets/relay.env.example
+*.dpapi
+*.pfx
+*.pem
+*.key
+.env
+*.log
+bin/
+obj/
+dist/
