@@ -8,7 +8,7 @@ test "$(id -u)" = 0 || { echo "Run as root via sudo"; exit 1; }
 VPS_REPO="dilshadshahsyed883-cmd/vps1-deploy-control"
 VPS_SHA="07e214614300d05917acc49a2d133f1f9887c930"
 CONCAT_REPO="dilshadshahsyed883-cmd/concat-web"
-CONCAT_SHA="6d891f952ee23b557dc2878cc2dcf298111ab48b"
+CONCAT_SHA="c39bc8bed44f4aa24c2bbcd5fc27f521a127dc3c"
 SCENE="vps1-scene-candidate.service"
 BRIDGE="concat-drive-bridge.service"
 ROOT="/opt/concat-drive-bridge"
@@ -30,8 +30,22 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== CHECK PINNED RELEASE ==="
-HEAD="$(git ls-remote "https://github.com/$CONCAT_REPO.git" refs/heads/integration/personal-release-20261119 | awk '{print $1}')"
-test "$HEAD" = "$CONCAT_SHA" || { echo "BLOCKED: Concat integration branch changed"; exit 1; }
+# Deploy ONLY the immutable, CI-verified Concat SHA, not future HEADs.
+# A moving integration branch is acceptable only while that exact commit
+# remains in its ancestry; a force-push or divergence fails closed.
+REMOTE="https://github.com/$CONCAT_REPO.git"
+BRANCH="refs/heads/integration/personal-release-20261119"
+HEAD="$(git ls-remote "$REMOTE" "$BRANCH" | awk '{print $1}')"
+test -n "$HEAD" || { echo "BLOCKED: Unable to resolve Concat integration"; exit 1; }
+git init -q "$TMP/concat-ancestry"
+git -C "$TMP/concat-ancestry" fetch --quiet --depth=128 "$REMOTE" "$BRANCH"
+FETCHED="$(git -C "$TMP/concat-ancestry" rev-parse FETCH_HEAD)"
+test "$FETCHED" = "$HEAD" || { echo "BLOCKED: Concat integration moved during verification"; exit 1; }
+git -C "$TMP/concat-ancestry" cat-file -e "$CONCAT_SHA^{commit}" 2>/dev/null ||
+  { echo "BLOCKED: Pinned Concat release not in recent integration history"; exit 1; }
+git -C "$TMP/concat-ancestry" merge-base --is-ancestor "$CONCAT_SHA" FETCH_HEAD ||
+  { echo "BLOCKED: Pinned Concat release not an integration ancestor"; exit 1; }
+echo "PINNED_CONCAT_RELEASE_IN_INTEGRATION=PASS"
 
 echo "=== VERIFY CANONICAL SCENE ==="
 systemctl is-active --quiet "$SCENE"
