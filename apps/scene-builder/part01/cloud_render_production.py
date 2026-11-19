@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import requests
 from fastapi import HTTPException
+from cloud_render_owner import migrate_production, owner_name, queue_state, set_queue_state
 
 LOG = logging.getLogger(__name__)
 MAX_ZIP = 4 * 1024 ** 3  # Concat GPU resumable upload limit
@@ -335,6 +336,7 @@ class ProductionQueue:
                 output_size INTEGER NOT NULL DEFAULT 0
             )""")
             con.execute("INSERT OR IGNORE INTO config VALUES('production_queue', 'stopped')")
+            migrate_production(con)
 
     def start(self):
         self.stop.clear()
@@ -366,7 +368,8 @@ class ProductionQueue:
                 self.wake.wait(delay)
                 self.wake.clear()
 
-    def scan(self, link):
+    def scan(self, link, owner):
+        owner = owner_name(owner)
         try:
             candidates = self.drive.discover(link)
         except RuntimeError as exc:
@@ -374,19 +377,19 @@ class ProductionQueue:
         added = 0
         with self.media.lock, self.media.connection() as con:
             for drive_id, name, keys, size, md5, folder, path in candidates:
-                row = con.execute("SELECT resource_keys FROM production_jobs WHERE drive_id=?", (drive_id,)).fetchone()
+                row = con.execute("SELECT resource_keys FROM production_jobs WHERE owner_username=? AND drive_id=?", (owner,drive_id,)).fetchone()
                 if row:
                     # A rescanned direct link can supply a resource key that a
                     # folder listing did not expose, without creating a new job.
                     if keys and keys != row["resource_keys"]:
                         pairs = filter(None, (row["resource_keys"] + "," + keys).split(","))
                         merged = {pair.split("/", 1)[0]: pair for pair in pairs}
-                        con.execute("UPDATE production_jobs SET resource_keys=? WHERE drive_id=?",
-                                    (",".join(merged.values()), drive_id))
+                        con.execute("UPDATE production_jobs SET resource_keys=? WHERE owner_username=? AND drive_id=?",
+                                    (",".join(merged.values()), owner, drive_id))
                     continue
                 con.execute("""INSERT INTO production_jobs(
-                    remote_id,drive_id,name,resource_keys,drive_size,drive_md5,folder_id,drive_path)
-                    VALUES(?,?,?,?,?,?,?,?)""", (self.new_remote_id(), drive_id, name, keys, size, md5, folder, path))
+                    remote_id,drive_id,name,resource_keys,drive_size,drive_md5,folder_id,drive_path,owner_username)
+                    VALUES(?,?,?,?,?,?,?,?,?)""", (self.new_remote_id(), drive_id, name, keys, size, md5, folder, path, owner))
                 added += 1
         self.wake.set()
         return {"added": added, "duplicates": len(candidates) - added}
@@ -395,29 +398,30 @@ class ProductionQueue:
     def new_remote_id():
         return "production-" + uuid.uuid4().hex
 
-    def snapshot(self):
+    def snapshot(self, owner):
+        owner = owner_name(owner)
         with self.media.connection() as con:
             items = [dict(row) for row in con.execute(
-                "SELECT id,name,state,error,cancel_requested FROM production_jobs ORDER BY id")]
-            concurrency = int(self.media.get(con, "render_concurrency") or "1")
+                "SELECT id,name,state,error,cancel_requested FROM production_jobs WHERE owner_username=? ORDER BY id", (owner,))]
+            concurrency = int(self.media.get(con, "render_concurrency", owner) or "1")
             active = sum(item["state"] not in TERMINAL and item["state"] != "Queued" for item in items)
-            return {"state": self.media.get(con, "production_queue"),
+            return {"state": queue_state(con, owner),
                     "concurrency": concurrency, "active": active, "items": items}
 
-    def control(self, action):
+    def control(self, action, owner):
+        owner = owner_name(owner)
         state = {"start": "running", "pause": "paused", "resume": "running"}.get(action)
         if state is None:
             raise HTTPException(404, "Unknown queue action.")
         with self.media.lock, self.media.connection() as con:
-            self.media.put(con, "production_queue", state)
-            if state == "running" and self.media.get(con, "endpoint") and self.media.get(con, "worker_key"):
-                self.media.put(con, "enabled", "1")
+            set_queue_state(con, owner, state)
         self.wake.set()
         return {"state": state}
 
-    def action(self, job, action):
+    def action(self, job, action, owner):
+        owner = owner_name(owner)
         with self.media.lock, self.media.connection() as con:
-            row = con.execute("SELECT * FROM production_jobs WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT * FROM production_jobs WHERE id=? AND owner_username=?", (job,owner)).fetchone()
             if row is None:
                 raise HTTPException(404, "Project not found.")
             if action == "cancel" and row["state"] not in TERMINAL:
@@ -463,14 +467,26 @@ class ProductionQueue:
             # Nonterminal jobs occupy queue slots, including GPU rendering,
             # download, retry and output delivery. No VRAM/CPU checks.
             active = con.execute("""SELECT * FROM production_jobs
-                WHERE state NOT IN ('Completed','Failed','Cancelled','Queued')
+                WHERE owner_username<>'' AND state NOT IN ('Completed','Failed','Cancelled','Queued')
                 ORDER BY id""").fetchall()
-            limit = int(self.media.get(con, "render_concurrency") or "1")
+            # Shared worker capacity remains operator-managed, never controlled by
+            # one owner's GPU Config. Each owner's requested parallelism is only
+            # an upper bound on their own active projects.
+            limit = max(1, min(2, int(self.media.get(con, "render_concurrency") or "1")))
             row = None
-            if len(active) < limit and self.media.get(con, "production_queue") == "running":
-                row = con.execute("SELECT * FROM production_jobs WHERE state='Queued' ORDER BY id LIMIT 1").fetchone()
-                if row is not None:
-                    con.execute("UPDATE production_jobs SET state='Downloading' WHERE id=?", (row["id"],))
+            if len(active) < limit:
+                candidates = con.execute("""SELECT p.* FROM production_jobs p
+                    JOIN production_owner_queues q ON q.owner_username=p.owner_username
+                    WHERE p.state='Queued' AND p.owner_username<>'' AND q.state='running'
+                    ORDER BY p.id""").fetchall()
+                for candidate in candidates:
+                    own_active = sum(item["owner_username"] == candidate["owner_username"] for item in active)
+                    own_limit = max(1, min(2, int(self.media.get(
+                        con, "render_concurrency", candidate["owner_username"]) or "1")))
+                    if own_active < own_limit:
+                        row = candidate
+                        con.execute("UPDATE production_jobs SET state='Downloading' WHERE id=?", (row["id"],))
+                        break
             if row is None and active:
                 row = active[self.observation_cursor % len(active)]
                 self.observation_cursor += 1
@@ -504,8 +520,8 @@ class ProductionQueue:
         if self.stop.is_set():
             raise Checkpoint()
         with self.media.lock, self.media.connection() as con:
-            row = con.execute("SELECT cancel_requested FROM production_jobs WHERE id=?", (job,)).fetchone()
-            if row["cancel_requested"] or self.media.get(con, "production_queue") != "running":
+            row = con.execute("SELECT cancel_requested,owner_username FROM production_jobs WHERE id=?", (job,)).fetchone()
+            if row is None or row["cancel_requested"] or queue_state(con, row["owner_username"]) != "running":
                 raise Checkpoint()
             if submit:
                 con.execute("UPDATE production_jobs SET submitted_at=? WHERE id=?", (int(time.time()), job))
@@ -521,7 +537,7 @@ class ProductionQueue:
         if not row["submitted_at"]:
             self.checkpoint(job)
 
-        worker = self.worker_factory(row["endpoint"])
+        worker = self.worker_factory(row["endpoint"], row["owner_username"])
         with self.media.connection() as con:
             concurrency = int(self.media.get(con, "render_concurrency") or "1")
         worker.configure_concurrency(concurrency)
@@ -565,8 +581,8 @@ class ProductionQueue:
             with path.open("rb") as stream:
                 digest = hashlib.file_digest(stream, "sha256").hexdigest()
         with self.media.connection() as con:
-            same = con.execute("""SELECT 1 FROM production_jobs WHERE digest=? AND id<>?
-                AND state NOT IN ('Failed','Cancelled')""", (digest, job)).fetchone()
+            same = con.execute("""SELECT 1 FROM production_jobs WHERE digest=? AND id<>? AND owner_username=?
+                AND state NOT IN ('Failed','Cancelled')""", (digest, job, row["owner_username"])).fetchone()
         if same:
             raise JobError("An identical Concat ZIP is already in Production.")
         self.update(job, state="Waiting for Worker", digest=digest)

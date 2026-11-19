@@ -95,7 +95,7 @@
       const local=["ready","failed","queued","uploading"].includes(file.state);
       // The existing /file route only serves local, verified files in these states.
       // Drive-delivered records no longer have a VPS copy, so never advertise a dead link.
-      if(["ready","failed","queued"].includes(file.state)){
+      if(["ready","failed","queued","verified","delivered"].includes(file.state)){
         actions.append(button("Copy Link",()=>copyMediaLink(file.id)));
       }
       if(local){

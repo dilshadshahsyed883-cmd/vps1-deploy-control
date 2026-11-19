@@ -78,7 +78,7 @@ class StudioTenants:
         self.identity(kind, entity_id)
         if not user or not str(user.get("username") or "").strip():
             raise PermissionError("Authenticated Studio account is required")
-        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") not in {"copyright", "concat"}:
             return
         owner = self.owner(kind, entity_id)
         if not owner or owner != self.username(user["username"]):
@@ -89,7 +89,7 @@ class StudioTenants:
             raise ValueError("Unknown Studio resource type")
         if not user or not str(user.get("username") or "").strip():
             raise PermissionError("Authenticated Studio account is required")
-        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") != "copyright":
+        if int(user.get("is_admin") or 0) and os.getenv("LUM_ENGINE_INSTANCE") not in {"copyright", "concat"}:
             return None  # Non-Copyright admins may inspect legacy records.
         owner = self.username(user["username"])
         with self.db.connect() as con:

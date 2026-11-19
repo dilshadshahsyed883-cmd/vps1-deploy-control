@@ -23,10 +23,10 @@ class AutoScriptTabTests(unittest.TestCase):
     def test_legacy_auto_script_hidden_from_experiment_subtab(self):
         base = (SCENE / "templates/base.html").read_text()
         rail = base.split('class="vps1-experiment-tabs"', 1)[1].split("</nav>", 1)[0]
-        self.assertEqual(rail.count("<a "), 6)
-        for label in ("Antidetect Browser", "Upload Studio", "Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
+        self.assertEqual(rail.count("<a "), 5)
+        for label in ("Antidetect Browser", "Upload Studio", "HeyGen Studio", "Voice Clone", "Imagen"):
             self.assertEqual(rail.count(">" + label + "</a>"), 1)
-        for label in ("Auto Script", "Self Media Library", "Video Studio"):
+        for label in ("Auto Script", "Self Media Library", "Video Studio", "Concat"):
             self.assertNotIn(">" + label + "</a>", rail)
         self.assertIn("page=='auto_script'", base)
         self.assertIn("page in ['experiment_studio','auto_script','local_upload_manager'", base)

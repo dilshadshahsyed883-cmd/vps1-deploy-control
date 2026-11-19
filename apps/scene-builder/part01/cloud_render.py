@@ -1,4 +1,4 @@
-"""Admin-only Cloud Render receiver, Media management and isolated SaladCloud config.
+"""Owner-isolated Cloud Render receiver, Media and SaladCloud configuration.
 
 Safe contract: authenticated admin manages media; a separate rotating receiver token
 permits chunked Salad output ingress. Local MP4 removal only follows successful
@@ -26,6 +26,7 @@ from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from cloud_render_production import ProductionQueue, Worker, WorkerWait
+from cloud_render_owner import migrate_files, owner_name, get_owner_config, put_owner_config
 
 CHUNK_MAX = 8 * 1024 * 1024
 MEDIA_MAX = 20 * 1024 * 1024 * 1024
@@ -152,6 +153,7 @@ class CloudRender:
                 error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )""")
             con.execute("CREATE TABLE IF NOT EXISTS config(key TEXT PRIMARY KEY, val TEXT NOT NULL)")
+            migrate_files(con)
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('auto_upload','0')")
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('priority','high')")
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('render_concurrency','1')")
@@ -160,7 +162,7 @@ class CloudRender:
             con.execute("INSERT OR IGNORE INTO config(key,val) VALUES('receiver_token',?)",
                         (secrets.token_urlsafe(48),))
             con.execute("UPDATE files SET state='failed',error='Interrupted Drive transfer; retry' WHERE state='uploading'")
-            pending = [r["id"] for r in con.execute("SELECT id FROM files WHERE state='queued'")]
+            pending = [r["id"] for r in con.execute("SELECT id FROM files WHERE state='queued' AND owner_username<>''")]
         self.path.chmod(0o600)
         self.production = ProductionQueue(self, self.production_worker)
         for job in pending:
@@ -179,11 +181,15 @@ class CloudRender:
         finally:
             con.close()
 
-    def get(self, con, key):
+    def get(self, con, key, owner=None):
+        if owner is not None:
+            return get_owner_config(con, owner, key)
         row = con.execute("SELECT val FROM config WHERE key=?", (key,)).fetchone()
         return row["val"] if row else ""
 
-    def put(self, con, key, val):
+    def put(self, con, key, val, owner=None):
+        if owner is not None:
+            return put_owner_config(con, owner, key, val)
         con.execute("INSERT INTO config(key,val) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET val=excluded.val",
                     (key, str(val)))
 
@@ -199,9 +205,10 @@ class CloudRender:
             self.put(con, "receiver_token", new)
         return {"receiver_token": new, "warning": "Shown once; replace RENDER_OUTPUT_TOKEN in the Salad worker securely."}
 
-    def config(self):
+    def config(self, owner):
+        owner = owner_name(owner)
         with self.connection() as con:
-            cfg = {k: self.get(con, k) for k in ("auto_upload","endpoint","priority","health_path","timeout","salad_key","worker_key","enabled","render_concurrency")}
+            cfg = {k: self.get(con, k, owner) for k in ("auto_upload","endpoint","priority","health_path","timeout","salad_key","worker_key","enabled","render_concurrency")}
         return {**GPU, "concurrency": int(cfg["render_concurrency"] or "1"),
                 "auto_upload": cfg["auto_upload"] == "1",
                 "endpoint": cfg["endpoint"], "priority": cfg["priority"] or "high",
@@ -212,7 +219,8 @@ class CloudRender:
                 "worker_key_saved": bool(cfg["worker_key"]),
                 "drive_bridge_available": shutil.which("rclone") is not None}
 
-    def save(self, obj):
+    def save(self, obj, owner):
+        owner = owner_name(owner)
         accepted = {"auto_upload","endpoint","priority","health_path","timeout","salad_key","worker_key","concurrency"}
         if not isinstance(obj, dict) or set(obj) - accepted:
             raise HTTPException(400, "Unknown GPU configuration field")
@@ -220,57 +228,48 @@ class CloudRender:
             if "concurrency" in obj:
                 if type(obj["concurrency"]) is not int or obj["concurrency"] not in (1, 2):
                     raise HTTPException(400, "Render concurrency must be exactly 1 or 2")
-                self.put(con, "render_concurrency", obj["concurrency"])
+                self.put(con, "render_concurrency", obj["concurrency"], owner)
             if "auto_upload" in obj:
                 if type(obj["auto_upload"]) is not bool:
                     raise HTTPException(400, "auto_upload must be boolean")
-                self.put(con, "auto_upload", int(obj["auto_upload"]))
+                self.put(con, "auto_upload", int(obj["auto_upload"]), owner)
             if "endpoint" in obj:
                 endpoint = endpoint_url(obj["endpoint"])
                 # Re-saving an unchanged endpoint (e.g. only concurrency
                 # changed in GPU Config) must not disconnect a live worker.
-                if endpoint != self.get(con, "endpoint"):
-                    self.put(con, "endpoint", endpoint)
-                    self.put(con, "enabled", "0")
+                if endpoint != self.get(con, "endpoint", owner):
+                    self.put(con, "endpoint", endpoint, owner)
+                    self.put(con, "enabled", "0", owner)
             if "priority" in obj:
                 if obj["priority"] not in ("low","medium","high"):
                     raise HTTPException(400, "Unsupported priority")
-                self.put(con, "priority", obj["priority"])
+                self.put(con, "priority", obj["priority"], owner)
             if "health_path" in obj:
-                self.put(con, "health_path", worker_path(obj["health_path"]))
+                self.put(con, "health_path", worker_path(obj["health_path"]), owner)
             if "timeout" in obj:
                 try: timeout = int(obj["timeout"])
                 except (TypeError, ValueError): raise HTTPException(400, "Invalid timeout") from None
                 if not 10 <= timeout <= 1800:
                     raise HTTPException(400, "Timeout outside 10–1800 seconds")
-                self.put(con, "timeout", timeout)
+                self.put(con, "timeout", timeout, owner)
             for k in ("salad_key", "worker_key"):
                 if obj.get(k):
                     value = str(obj[k])
                     if len(value) > 1024 or "\n" in value or "\r" in value:
                         raise HTTPException(400, "Invalid key")
-                    self.put(con, k, value)
+                    self.put(con, k, value, owner)
         if "concurrency" in obj:
-            # Apply immediately when the Salad worker is connected. If it is
-            # offline, the persisted setting is synchronized at next dispatch.
             self.production.wake.set()
-            sync = "pending"
-            try:
-                worker = self.production.worker_factory("")
-                worker.timeout = min(worker.timeout, 10)
-                worker.configure_concurrency(obj["concurrency"])
-                sync = "applied"
-            except WorkerWait:
-                pass
-            return {**self.config(), "concurrency_sync": sync}
-        return self.config()
+            return {**self.config(owner), "concurrency_sync": "owner_setting"}
+        return self.config(owner)
 
-    def probe(self, connect=False):
+    def probe(self, owner, connect=False):
+        owner = owner_name(owner)
         with self.connection() as con:
-            url = endpoint_url(self.get(con, "endpoint"))
-            path = self.get(con, "health_path") or "/health/ready"
-            gateway = self.get(con, "salad_key")
-            api = self.get(con, "worker_key")
+            url = endpoint_url(self.get(con, "endpoint", owner))
+            path = self.get(con, "health_path", owner) or "/health/ready"
+            gateway = self.get(con, "salad_key", owner)
+            api = self.get(con, "worker_key", owner)
         if not url:
             raise HTTPException(409, "SaladCloud endpoint is missing")
         headers = {"Accept": "application/json"}
@@ -286,17 +285,18 @@ class CloudRender:
             healthy, status = False, "unreachable"
         if connect:
             with self.connection() as con:
-                self.put(con, "enabled", int(healthy))
-        return {"ok": healthy, "status": status, "connected": healthy if connect else self.config()["enabled"]}
+                self.put(con, "enabled", int(healthy), owner)
+        return {"ok": healthy, "status": status, "connected": healthy if connect else self.config(owner)["enabled"]}
 
-    def production_worker(self, pinned):
+    def production_worker(self, pinned, owner):
+        owner = owner_name(owner)
         with self.connection() as con:
-            url = endpoint_url(self.get(con, "endpoint"))
-            enabled = self.get(con, "enabled") == "1"
-            token = self.get(con, "worker_key")
-            gateway = self.get(con, "salad_key")
-            health = worker_path(self.get(con, "health_path") or "/health/ready")
-            timeout = int(self.get(con, "timeout") or 300)
+            url = endpoint_url(self.get(con, "endpoint", owner))
+            enabled = self.get(con, "enabled", owner) == "1"
+            token = self.get(con, "worker_key", owner)
+            gateway = self.get(con, "salad_key", owner)
+            health = worker_path(self.get(con, "health_path", owner) or "/health/ready")
+            timeout = int(self.get(con, "timeout", owner) or 300)
         if pinned and url != pinned:
             raise WorkerWait("Restore the original GPU endpoint to recover or cancel this project.")
         if not enabled or not url or not token:
@@ -313,10 +313,15 @@ class CloudRender:
         name = filename(name)
         final = self.local(job)
         with self.lock, self.connection() as con:
-            row = con.execute("SELECT state,size,sha256 FROM files WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT state,size,sha256,owner_username FROM files WHERE id=?", (job,)).fetchone()
+            verified = con.execute("SELECT owner_username,output_sha FROM production_jobs WHERE remote_id=?", (job,)).fetchone()
+            if not verified or not verified["owner_username"]:
+                raise HTTPException(404, "Owner-bound render job not found.")
+            owner = owner_name(verified["owner_username"])
+            if row and row["owner_username"] != owner:
+                raise HTTPException(409, "Production output ownership mismatch.")
             if row and (row["size"] != size or row["sha256"] != sha):
                 raise HTTPException(409, "Production MP4 disagrees with the existing Media record.")
-            verified = con.execute("SELECT output_sha FROM production_jobs WHERE remote_id=?", (job,)).fetchone()
             if verified and verified["output_sha"] == sha:
                 return
             if row and row["state"] != "receiving":
@@ -331,21 +336,21 @@ class CloudRender:
                         raise HTTPException(409, "Production MP4 path is occupied.")
             else:
                 os.replace(source, final)
-            con.execute("""INSERT INTO files(id,name,size,received,sha256,md5,state)
-                           VALUES(?,?,?,?,?,?,'ready')
+            con.execute("""INSERT INTO files(id,name,size,received,sha256,md5,state,owner_username)
+                           VALUES(?,?,?,?,?,?,'ready',?)
                            ON CONFLICT(id) DO UPDATE SET name=excluded.name,received=excluded.received,
-                               md5=excluded.md5,state='ready',error=''""", (job,name,size,size,sha,md5))
+                               md5=excluded.md5,state='ready',error=''""", (job,name,size,size,sha,md5,owner))
             con.execute("UPDATE production_jobs SET output_sha=?,output_size=? WHERE remote_id=?", (sha, size, job))
             (self.staging / (job + ".part")).unlink(missing_ok=True)
-            auto = self.get(con, "auto_upload") == "1"
+            auto = self.get(con, "auto_upload", owner) == "1"
             if auto:
                 con.execute("UPDATE files SET state='queued' WHERE id=?", (job,))
         if auto:
             self.pool.submit(self._upload, job)
 
-    def disconnect(self):
+    def disconnect(self, owner):
         with self.connection() as con:
-            self.put(con, "enabled", "0")
+            self.put(con, "enabled", "0", owner)
         return {"ok": True}
 
     def local(self, job):
@@ -353,10 +358,11 @@ class CloudRender:
             raise HTTPException(400, "Invalid job ID")
         return self.media / (job + ".mp4")
 
-    def listing(self):
+    def listing(self, owner):
+        owner = owner_name(owner)
         with self.connection() as con:
-            rows = con.execute("SELECT id,name,size,received,state,drive_path,error,created_at FROM files ORDER BY created_at DESC,id DESC LIMIT 500").fetchall()
-        return {"items": [dict(r) for r in rows], "auto_upload": self.config()["auto_upload"]}
+            rows = con.execute("SELECT id,name,size,received,state,drive_path,error,created_at FROM files WHERE owner_username=? ORDER BY created_at DESC,id DESC LIMIT 500", (owner,)).fetchall()
+        return {"items": [dict(r) for r in rows], "auto_upload": self.config(owner)["auto_upload"]}
 
     def receive(self, job, index, data, *, name, size, sha):
         final = self.local(job)
@@ -370,9 +376,12 @@ class CloudRender:
         part = self.staging / (job + ".part")
         auto = False
         with self.lock, self.connection() as con:
-            production = con.execute("SELECT name,output_sha,output_size FROM production_jobs WHERE remote_id=?",
+            production = con.execute("SELECT name,output_sha,output_size,owner_username FROM production_jobs WHERE remote_id=?",
                                      (job,)).fetchone()
-            if production and production["output_sha"]:
+            if not production or not production["owner_username"]:
+                raise HTTPException(404, "Owner-bound render job not found.")
+            owner = owner_name(production["owner_username"])
+            if production["output_sha"]:
                 if production["output_sha"] != sha or production["output_size"] != size:
                     raise HTTPException(409, "Job upload metadata mismatch")
                 return {"ok": True, "state": "ready", "received": size}
@@ -382,9 +391,11 @@ class CloudRender:
             if row is None:
                 if index != 0:
                     raise HTTPException(409, "Start with chunk zero")
-                con.execute("INSERT INTO files(id,name,size,sha256,state) VALUES(?,?,?,?,?)",
-                            (job,name,size,sha,"receiving"))
+                con.execute("INSERT INTO files(id,name,size,sha256,state,owner_username) VALUES(?,?,?,?,?,?)",
+                            (job,name,size,sha,"receiving",owner))
                 row = con.execute("SELECT * FROM files WHERE id=?", (job,)).fetchone()
+            if row["owner_username"] != owner:
+                raise HTTPException(409, "Render job ownership mismatch")
             if row["name"] != name or row["size"] != size or row["sha256"] != sha:
                 raise HTTPException(409, "Job upload metadata mismatch")
             if row["state"] != "receiving":
@@ -418,7 +429,7 @@ class CloudRender:
                     raise HTTPException(409, "Final media path is occupied")
                 os.replace(part, final)
             con.execute("UPDATE files SET state='ready',received=?,md5=? WHERE id=?", (size,md5,job))
-            auto = self.get(con, "auto_upload") == "1"
+            auto = self.get(con, "auto_upload", owner) == "1"
             if production:
                 con.execute("UPDATE production_jobs SET output_sha=?,output_size=? WHERE remote_id=?", (sha, size, job))
                 if auto:
@@ -426,8 +437,6 @@ class CloudRender:
         if auto:
             if production:
                 self.pool.submit(self._upload, job)
-            else:
-                self.queue(job)
         return {"ok": True, "state": "ready", "received": size, "auto_queued": auto}
 
     @staticmethod
@@ -445,34 +454,37 @@ class CloudRender:
             raise HTTPException(422, "MP4 size or SHA256 mismatch; staged copy retained")
         return md5.hexdigest()
 
-    def rename(self, job, new_name):
+    def rename(self, job, new_name, owner):
         self.local(job)
         new_name = filename(new_name)
+        owner = owner_name(owner)
         with self.lock, self.connection() as con:
-            row = con.execute("SELECT state,size FROM files WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT state,size FROM files WHERE id=? AND owner_username=?", (job,owner)).fetchone()
             if not row: raise HTTPException(404, "File not found")
             if row["state"] not in ("ready","failed"):
                 raise HTTPException(409, "File busy or already delivered")
             con.execute("UPDATE files SET name=? WHERE id=?", (new_name,job))
         return {"ok": True}
 
-    def delete(self, job):
+    def delete(self, job, owner):
         local = self.local(job)
+        owner = owner_name(owner)
         with self.lock, self.connection() as con:
-            row = con.execute("SELECT state FROM files WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT state FROM files WHERE id=? AND owner_username=?", (job,owner)).fetchone()
             if not row: raise HTTPException(404, "File not found")
             if row["state"] in ("uploading","queued"):
                 raise HTTPException(409, "Cannot delete during Drive transfer")
             source = self.staging / (job+".part") if row["state"] == "receiving" else local
             if source.is_symlink(): raise HTTPException(409, "Unsafe file path")
             source.unlink(missing_ok=True)
-            con.execute("DELETE FROM files WHERE id=?", (job,))
+            con.execute("DELETE FROM files WHERE id=? AND owner_username=?", (job,owner))
         return {"ok": True}
 
-    def queue(self, job):
+    def queue(self, job, owner):
         local = self.local(job)
+        owner = owner_name(owner)
         with self.lock, self.connection() as con:
-            row = con.execute("SELECT state,size FROM files WHERE id=?", (job,)).fetchone()
+            row = con.execute("SELECT state,size FROM files WHERE id=? AND owner_username=?", (job,owner)).fetchone()
             if not row: raise HTTPException(404, "File not found")
             if row["state"] not in ("ready","failed"):
                 raise HTTPException(409, "File is not ready for upload")
@@ -512,7 +524,7 @@ class CloudRender:
         local = self.local(job)
         with self.lock, self.connection() as con:
             row = con.execute("SELECT * FROM files WHERE id=?", (job,)).fetchone()
-            if not row or row["state"] != "queued":
+            if not row or not row["owner_username"] or row["state"] != "queued":
                 return
             con.execute("UPDATE files SET state='uploading' WHERE id=?", (job,))
         try:
@@ -529,7 +541,7 @@ class CloudRender:
                 raise RuntimeError(f'Canonical Drive Bridge remote "{remote_name}" is not configured for Cloud Render service')
             if local.is_symlink() or not local.is_file() or local.stat().st_size != row["size"]:
                 raise RuntimeError("Source file absent or changed")
-            remote = f"{remote_name}:{folder}/{job}_{filename(row['name'])}"
+            remote = f"{remote_name}:{folder}/{owner_name(row['owner_username'])}/{job}_{filename(row['name'])}"
             info = self.remote_stat(remote)
             if info is None:
                 self.execute(["rclone","copyto",str(local),remote,"--immutable"],3600)
@@ -560,20 +572,21 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
     app.router.add_event_handler("startup", manager.production.start)
     app.router.add_event_handler("shutdown", manager.production.close)
 
-    def admin(req):
+    def owner(req):
         require_login(req)
-        require_admin(req)
+        return owner_name(req.session.get("username"))
 
     def csrf(req):
-        admin(req)
+        account_owner = owner(req)
         expected = str(req.session.get("cloud_render_csrf") or "")
         actual = str(req.headers.get("X-Cloud-Render-CSRF") or "")
         if not expected or not hmac.compare_digest(expected,actual):
             raise HTTPException(403, "Cloud Render CSRF token required")
+        return account_owner
 
     @app.get("/cloud-render/",response_class=HTMLResponse)
     def home(request: Request):
-        admin(request)
+        owner(request)
         if not request.session.get("cloud_render_csrf"):
             request.session["cloud_render_csrf"] = secrets.token_urlsafe(32)
         return templates.TemplateResponse(request, "cloud_render.html",
@@ -583,33 +596,35 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
 
     @app.get("/api/cloud-render/config")
     def config(request: Request):
-        admin(request); return manager.config()
+        owner(request); return manager.config(owner(request))
 
     @app.post("/api/cloud-render/config")
     async def save(request: Request):
         csrf(request)
-        return manager.save(await request.json())
+        return manager.save(await request.json(), owner(request))
 
     @app.post("/api/cloud-render/token/rotate")
     def token_rotate(request: Request):
-        csrf(request); return manager.rotate_token()
+        csrf(request)
+        require_admin(request)  # shared receiver token is privileged infrastructure
+        return manager.rotate_token()
 
     @app.post("/api/cloud-render/gpu/test")
     def gpu_test(request: Request):
-        csrf(request); return manager.probe()
+        csrf(request); return manager.probe(owner(request))
 
     @app.post("/api/cloud-render/gpu/connect")
     def gpu_connect(request: Request):
-        csrf(request); return manager.probe(connect=True)
+        csrf(request); return manager.probe(owner(request), connect=True)
 
     @app.post("/api/cloud-render/gpu/disconnect")
     def gpu_disconnect(request: Request):
-        csrf(request); return manager.disconnect()
+        csrf(request); return manager.disconnect(owner(request))
 
     @app.get("/api/cloud-render/production")
     def production(request: Request):
-        admin(request)
-        return manager.production.snapshot()
+        owner(request)
+        return manager.production.snapshot(owner(request))
 
     @app.post("/api/cloud-render/production/scan")
     async def production_scan(request: Request):
@@ -620,41 +635,41 @@ def register_cloud_render(app, templates, root, require_admin, require_login):
             raise HTTPException(400, "A Drive link is required.") from None
         if not isinstance(payload, dict):
             raise HTTPException(400, "A Drive link is required.")
-        return await run_in_threadpool(manager.production.scan, payload.get("link"))
+        return await run_in_threadpool(manager.production.scan, payload.get("link"), owner(request))
 
     @app.post("/api/cloud-render/production/queue/{action}")
     def production_control(request: Request, action: str):
         csrf(request)
-        return manager.production.control(action)
+        return manager.production.control(action, owner(request))
 
     @app.post("/api/cloud-render/production/jobs/{job}/{action}")
     def production_action(request: Request, job: int, action: str):
         csrf(request)
-        return manager.production.action(job, action)
+        return manager.production.action(job, action, owner(request))
 
     @app.get("/api/cloud-render/media")
     def list_media(request: Request):
-        admin(request); return manager.listing()
+        owner(request); return manager.listing(owner(request))
 
     @app.post("/api/cloud-render/media/{job}/rename")
     async def rename(request: Request,job: str):
         csrf(request); obj=await request.json()
-        return manager.rename(job,obj.get("name",""))
+        return manager.rename(job,obj.get("name",""),owner(request))
 
     @app.post("/api/cloud-render/media/{job}/drive")
     def upload(request: Request,job: str):
-        csrf(request); return manager.queue(job)
+        csrf(request); return manager.queue(job,owner(request))
 
     @app.delete("/api/cloud-render/media/{job}")
     def delete(request: Request,job: str):
-        csrf(request); return manager.delete(job)
+        csrf(request); return manager.delete(job,owner(request))
 
     @app.get("/api/cloud-render/media/{job}/file")
     def download(request: Request,job: str):
-        admin(request)
+        owner(request)
         local = manager.local(job)
         with manager.connection() as con:
-            row = con.execute("SELECT name,state FROM files WHERE id=?",(job,)).fetchone()
+            row = con.execute("SELECT name,state FROM files WHERE id=? AND owner_username=?",(job,owner(request))).fetchone()
         if not row or row["state"] not in ("ready","failed","queued") or not local.is_file() or local.is_symlink():
             raise HTTPException(404,"Local MP4 unavailable")
         return FileResponse(local,media_type="video/mp4",filename=row["name"],content_disposition_type=("attachment" if request.query_params.get("download") == "1" else "inline"),

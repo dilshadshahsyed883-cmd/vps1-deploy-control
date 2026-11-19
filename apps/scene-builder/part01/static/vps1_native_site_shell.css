@@ -614,3 +614,6 @@ body.vps1-native-site>.vps1-native-experiment-tabs~:is(
 .vps1-experiment-tabs[hidden],
 .vps1-native-experiment-tabs[hidden],
 nav[aria-label="Experiment Studio"][hidden] { display: none !important; }
+
+/* Concat Studio's independent rail must fail closed until session verification. */
+.vps1-concat-studio-tabs[hidden],.vps1-native-concat-studio-tabs[hidden]{display:none!important}

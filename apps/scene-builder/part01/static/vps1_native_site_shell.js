@@ -9,7 +9,7 @@
     window.location.replace("/audio-downloader/");
     return;
   }
-  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song", "song-uploader", "short-uploader", "copyright-uploader"].includes(app)) return;
+  if (!legacySidebar && !["acs", "voice", "uploader", "stream", "library", "song", "song-uploader", "short-uploader", "copyright-uploader", "concat-uploader"].includes(app)) return;
   // During staggered releases an old Scene shell may still embed this document.
   // Never render a second navigation in that legacy framing context.
   if (window.self !== window.top) return;
@@ -35,6 +35,7 @@
     ["Short Studio", "/short-maker", "short"],
     ["Copyright Studio", "/video-merger/", "copyright"],
     ["Voice Studio", "/voice-studio/app#vps1-production", "voice"],
+    ["Concat Studio", "/concat-studio/", "concat"],
     ["Experiment Studio", "/experiment-studio/", "experiment"]
   ]);
   // A verified Scene identity decides permissions. Never trust local storage
@@ -46,8 +47,8 @@
       ? identity.allowed_studios : [];
     for (const [key, link] of Object.entries(links)) {
       if (!link) continue;
-      const visible = key === "dashboard" || (key === "experiment"
-        ? admin : (admin || granted.includes(key)));
+      const visible = key === "dashboard" || (key === "concat" ? authenticated :
+        key === "experiment" ? admin : (admin || granted.includes(key)));
       link.hidden = !visible;
       if (visible) link.removeAttribute("hidden");
       else link.setAttribute("hidden", "");
@@ -63,7 +64,8 @@
     if (/^\/(song-studio|song-maker|song-uploader)(\/|$)/.test(pathname)) return "song";
     if (/^\/voice-studio(\/|$)/.test(pathname)) return window.location.hash === "#vs-audio" ? "song" : "voice";
     if (/^\/(experiment-studio|self-media-library|auto-script)(\/|$)/.test(pathname)) return "experiment";
-    if (/^\/(cloud-render|heygen-studio|voice-clone-studio|imagen-studio)(\/|$)/.test(pathname)) return "experiment";
+    if (/^\/(concat-studio|cloud-render)(\/|$)/.test(pathname)) return "concat";
+    if (/^\/(heygen-studio|voice-clone-studio|imagen-studio)(\/|$)/.test(pathname)) return "experiment";
     if (/^\/(admin|storage-manager|user-management)(\/|$)/.test(pathname)) return "admin";
     if (pathname === "/" || pathname === "/dashboard") return "dashboard";
     return "";
@@ -80,13 +82,11 @@
   const EXPERIMENT_NAV = Object.freeze([
     ["Antidetect Browser", "/experiment-studio/antidetect-browser/", "antidetect"],
     ["Upload Studio", "/local-upload-manager/app?embedded=1&tab=dashboard", "upload"],
-    ["Concat", "/cloud-render/", "cloud-render"],
     ["HeyGen Studio", "/heygen-studio/", "heygen"],
     ["Voice Clone", "/voice-clone-studio/", "voice-clone"],
     ["Imagen", "/imagen-studio/", "imagen"]
   ]);
   const experimentSection = pathname => {
-    if (/^\/cloud-render(\/|$)/.test(pathname)) return "cloud-render";
     if (/^\/heygen-studio(\/|$)/.test(pathname)) return "heygen";
     if (/^\/voice-clone-studio(\/|$)/.test(pathname)) return "voice-clone";
     if (/^\/imagen-studio(\/|$)/.test(pathname)) return "imagen";
@@ -105,6 +105,22 @@
     for (const [label, href, key] of EXPERIMENT_NAV)
       links[key] = addLink(tabs, label, href, selected === key);
     return {tabs, links};
+  };
+  // Reuse Cloud Render; Agent 3 mounts the uploader at the reserved URL.
+  const CONCAT_NAV = Object.freeze([
+    ["Concat", "/concat-studio/concat/", "concat-render"],
+    ["Concat Uploader", "/concat-studio/concat-uploader/", "concat-uploader"]
+  ]);
+  const concatSection = pathname =>
+    /^\/concat-studio\/concat-uploader(\/|$)/.test(pathname) ? "concat-uploader" : "concat-render";
+  const createConcatTabs = (isLegacy, selected) => {
+    const tabs = node("nav", isLegacy ? "vps1-experiment-tabs vps1-concat-studio-tabs" :
+      "vps1-native-experiment-tabs vps1-native-concat-studio-tabs");
+    tabs.dataset.vps1Component = "studio-tabs";
+    tabs.setAttribute("aria-label", "Concat Studio");
+    for (const [label, href, key] of CONCAT_NAV)
+      addLink(tabs, label, href, selected === key);
+    return tabs;
   };
   function alignVideoTabs() {
     const rail = document.querySelector?.('nav[aria-label="Video Studio"], nav[aria-label="Short Studio"]');
@@ -174,6 +190,12 @@
     }
     const experimentTabs = document.querySelector('nav[aria-label="Experiment Studio"]');
     if (experimentTabs) experimentTabs.hidden = true;
+    if (current === "concat" && !document.querySelector('nav[aria-label="Concat Studio"]')) {
+      const main = document.querySelector("main");
+      if (main) main.prepend(createConcatTabs(true, concatSection(window.location.pathname)));
+    }
+    const concatTabs = document.querySelector('nav[aria-label="Concat Studio"]');
+    if (concatTabs) concatTabs.hidden = true;
     let account = sidebar.querySelector(":scope > .sidebar-account");
     if (!account) {
       account = node("div", "sidebar-account");
@@ -202,6 +224,7 @@
       const authenticated = !!(identity && identity.authenticated === true);
       const isAdmin = authenticated && identity.is_admin === true;
       if (experimentTabs) experimentTabs.hidden = !isAdmin;
+      if (concatTabs) concatTabs.hidden = !authenticated;
       if (isAdmin && !adminLink) {
         adminLink = addLink(navigation, "Admin", "/admin",
           /^\/admin(\/|$)/.test(window.location.pathname));
@@ -261,7 +284,8 @@
     const navigation = node("nav");
     navigation.setAttribute("aria-label", "Applications");
     // Native pages and legacy Video Studio documents use the same menu.
-    const current = app === "copyright-uploader" ? "copyright" : app === "short-uploader" ? "short" : (app === "song" || app === "song-uploader") ? "song" :
+    const current = /^\/(concat-studio|cloud-render)(\/|$)/.test(window.location?.pathname || "") || app === "concat-uploader" ? "concat" :
+      app === "copyright-uploader" ? "copyright" : app === "short-uploader" ? "short" : (app === "song" || app === "song-uploader") ? "song" :
       (app === "voice" && (window.location?.hash === "#vs-audio" ||
         /^\/audio-downloader\/?$/.test(window.location?.pathname || ""))) ? "song" : app === "voice" ? "voice" : "experiment";
     const primaryLinks = addPrimaryLinks(navigation, current);
@@ -270,6 +294,7 @@
     // guessing or browser-stored role flags. Admin stays hidden until verified.
     let adminLink = null;
     let experimentTabs = null;
+    let concatTabs = null;
     const account = node("div", "vps1-native-account");
     account.hidden = false;
     account.appendChild(node("small", "", "ACCOUNT"));
@@ -288,6 +313,7 @@
       const authorized = !!(identity && identity.authenticated === true);
       const isAdmin = authorized && identity.is_admin === true;
       if (experimentTabs) experimentTabs.hidden = !isAdmin;
+      if (concatTabs) concatTabs.hidden = !authorized;
       if (isAdmin && !adminLink) {
         adminLink = node("a", "", "Admin");
         adminLink.href = "/admin";
@@ -334,7 +360,7 @@
     const isSongAudio = app === "voice" &&
       (/^\/audio-downloader\/?$/.test(window.location?.pathname || "") ||
        document.body.classList.contains("vs-audio-active"));
-    const secondLevel = !isSongAudio && ["acs", "uploader", "stream", "library"].includes(app)
+    const secondLevel = current !== "concat" && !isSongAudio && ["acs", "uploader", "stream", "library"].includes(app)
       ? createExperimentTabs(false, app === "library" ? "library" :
           app === "acs" ? "video" : app === "voice" ? "voice" : "upload")
       : null;
@@ -343,7 +369,12 @@
       experimentTabs.hidden = true;
       toggle.after(experimentTabs);
     }
-    const attachInnerTabs = tabs => (secondLevel ? secondLevel.tabs : toggle).after(tabs);
+    if (current === "concat") {
+      concatTabs = createConcatTabs(false, concatSection(window.location?.pathname || ""));
+      concatTabs.hidden = true;
+      toggle.after(concatTabs);
+    }
+    const attachInnerTabs = tabs => (concatTabs || (secondLevel ? secondLevel.tabs : toggle)).after(tabs);
     const voiceLink = primaryLinks.voice;
     const songLink = primaryLinks.song;
     const selectVoiceOrSong = () => {

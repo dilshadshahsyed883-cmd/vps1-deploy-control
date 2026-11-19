@@ -419,6 +419,17 @@ class QueueRepository(BaseRepository):
             ).fetchone()
             return self._decode_sensitive_record(row) if row else None
 
+    def video_id_for_staged_path(self, path: str, channel_db_id: int) -> int:
+        """Recover a crashed wrapper-to-core handoff, never guess among duplicates."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM videos WHERE local_video_path=? AND channel_db_id=? ORDER BY id LIMIT 2",
+                (str(path), int(channel_db_id)),
+            ).fetchall()
+        if len(rows) > 1:
+            raise ValueError("Ambiguous staged video; manual reconciliation required")
+        return int(rows[0][0]) if rows else 0
+
     def claim_available_jobs(
         self,
         worker_id: str,
@@ -427,6 +438,7 @@ class QueueRepository(BaseRepository):
         auto_engine_only: bool = False,
         exclude_auto_engine: bool = False,
         recovery_only: bool = False,
+        only_video_id: int | None = None,
         lease_seconds: int = 600,
         allowed_auto_engine_profile_ids: Optional[Iterable[int]] = None,
     ) -> List[Dict[str, Any]]:
@@ -490,6 +502,11 @@ class QueueRepository(BaseRepository):
                 return []
             query = "SELECT id, channel_db_id FROM videos WHERE status IN ('QUEUED','WAITING_SLOT') AND (claim_worker_id IS NULL OR lease_expires_at<=?)"
             params: List[Any] = [now_text]
+            if only_video_id is not None:
+                if int(only_video_id) <= 0:
+                    raise ValueError("Valid core video ID required")
+                query += " AND id=?"
+                params.append(int(only_video_id))
             if auto_engine_only:
                 query += " AND auto_engine_profile_id IS NOT NULL"
             elif exclude_auto_engine:
@@ -904,7 +921,7 @@ class QueueRepository(BaseRepository):
                     self._set_ledger_state(conn, int(row["id"]), "RESERVED")
             return int(cur.rowcount)
 
-    def queued_work_exists(self, *, auto_engine_only: bool = False, exclude_auto_engine: bool = False, recovery_only: bool = False) -> bool:
+    def queued_work_exists(self, *, auto_engine_only: bool = False, exclude_auto_engine: bool = False, recovery_only: bool = False, only_video_id: int | None = None) -> bool:
         query = "SELECT 1 FROM videos WHERE status IN ('QUEUED','WAITING_SLOT','CLAIMED','UPLOADING','WAITING_NETWORK','THUMBNAIL_UPLOADING')"
         if auto_engine_only:
             query += " AND auto_engine_profile_id IS NOT NULL"
@@ -912,9 +929,13 @@ class QueueRepository(BaseRepository):
             query += " AND auto_engine_profile_id IS NULL"
         if recovery_only:
             query += " AND recovery_state='AUTO_RESUME'"
+        params = ()
+        if only_video_id is not None:
+            query += " AND id=?"
+            params = (int(only_video_id),)
         query += " LIMIT 1"
         with self.connect() as conn:
-            return bool(conn.execute(query).fetchone())
+            return bool(conn.execute(query, params).fetchone())
 
     def save_resumable_state(
         self, video_id: int, uri: str, file_size: int, file_mtime_ns: int, confirmed_bytes: int = 0
