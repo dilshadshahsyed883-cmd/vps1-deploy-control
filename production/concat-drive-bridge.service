@@ -1,6 +1,6 @@
 # Inert template. Install only for a pinned, tested source release.
 [Unit]
-Description=Canonical Drive read-only intake for Concat
+Description=Canonical Drive intake and restricted Concat Outputs MP4 handoff
 After=network-online.target
 Wants=network-online.target
 

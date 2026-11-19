@@ -1,4 +1,4 @@
-# Canonical Drive intake for Concat issue 16
+# Canonical Drive intake and restricted Concat Outputs upload
 
 This optional, independent service reuses the pinned Scene release's
 `DriveIntake`, `CloudRender.execute`, and canonical worker HOME/rclone identity.
@@ -23,7 +23,36 @@ local path, shell command, config, token, Drive upload or delete operation.
 
 Downloads use per-request mode-0700 temporary directories, original rclone
 limits and source-resource-key handling, two bounded workers, and automatic
-cleanup. Raw errors and requests are never logged. No shared output directory
+cleanup.
+
+## Explicitly authorized Concat Outputs MP4 upload
+
+The single output-write operation POST /v1/upload accepts a streamed, previously
+verified MP4 only from the kernel UID of the isolated Concat service. It requires
+Content-Length, X-Owner (authenticated Concat tenant SHA256), X-Job-ID,
+X-File-Name, X-Content-SHA256 and X-Content-MD5. The trusted Bridge generates
+the only permitted destination:
+
+  gdrive:Concat Outputs/<owner-sha256>/<job-id>_<mp4-name>
+
+"Concat Outputs" is the fixed Google Drive root for completed Concat MP4s.
+No arbitrary remote, folder, command, local path, upload source URL, overwrite
+or deletion is accepted. Streams are bounded to 20 GiB, staged privately, and
+checked for MP4 ftyp signature, exact length, SHA256 and MD5 before canonical
+rclone copyto --immutable. The existing destination is verified first, so a
+matching retry is idempotent; conflict is rejected without overwrite. The remote
+size + MD5 are checked again after transfer. Raw rclone logs and credentials
+never cross the socket.
+
+Only after this verified response does Concat Web set "delivered" and remove its
+local copy. Errors preserve the original video and allow its existing Retry
+Drive Upload button. This upload-only extension does not change read-only
+ZIP discovery/download, Scene OAuth, user rights, YouTube, or Salad.
+
+The bridge may be deployed as a separate approved, pinned release; the browser
+does not upload the video. Verify success on the real Google Drive with an
+existing retained MP4 and failure/retention with an unauthorized destination.
+ Raw errors and requests are never logged. No shared output directory
 is readable by Concat; bytes cross the authenticated socket.
 
 ## Separate manual activation gate
