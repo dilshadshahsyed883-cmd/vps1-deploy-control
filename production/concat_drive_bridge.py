@@ -1,12 +1,14 @@
-"""Read-only Concat intake over a peer-authenticated Unix socket.
+"""Restricted Concat Drive bridge over a peer-authenticated Unix socket.
 
 Run separately as the canonical Scene identity. No shell, caller paths, remote
 names, OAuth material or arbitrary rclone arguments cross this boundary.
+The sole output write is a verified MP4 to the fixed Concat Outputs folder.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -24,6 +26,10 @@ from http.server import BaseHTTPRequestHandler
 MAX_BODY = 16 * 1024
 MAX_JSON = 16 * 1024 * 1024
 MAX_ZIP = 4 * 1024 ** 3
+MAX_MP4 = 20 * 1024 ** 3
+OUTPUT_FOLDER = "Concat Outputs"
+MP4_NAME = re.compile(r"[A-Za-z0-9_.() -]{5,150}")
+OUTPUT_JOB = re.compile(r"[A-Za-z0-9_-]{1,80}")
 ID = re.compile(r"[A-Za-z0-9_-]{1,200}")
 
 
@@ -99,7 +105,101 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def upload_output(self):
+        """Accept only an owner-tagged, checksummed MP4 into Concat Outputs.
+
+        The authenticated Concat service streams bytes, not caller-selected
+        local paths. Remote name and root are constructed here, and existing
+        Drive objects are never overwritten. No generic write/delete API.
+        """
+        try:
+            allowed = (
+                "Content-Length", "Content-Type", "X-Owner", "X-Job-ID",
+                "X-File-Name", "X-Content-SHA256", "X-Content-MD5",
+            )
+            fields = {}
+            for key in allowed:
+                values = self.headers.get_all(key, [])
+                if len(values) != 1:
+                    raise ValueError()
+                fields[key] = values[0]
+            if self.headers.get("Transfer-Encoding"):
+                raise ValueError()
+            if fields["Content-Type"] != "application/octet-stream":
+                raise ValueError()
+            owner, job, name = (fields["X-Owner"], fields["X-Job-ID"],
+                                fields["X-File-Name"])
+            sha, md5 = fields["X-Content-SHA256"], fields["X-Content-MD5"]
+            size = int(fields["Content-Length"])
+            if (not re.fullmatch(r"[a-f0-9]{64}", owner)
+                    or not OUTPUT_JOB.fullmatch(job)
+                    or not MP4_NAME.fullmatch(name)
+                    or not name.lower().endswith(".mp4")
+                    or not re.fullmatch(r"[a-f0-9]{64}", sha)
+                    or not re.fullmatch(r"[a-f0-9]{32}", md5)
+                    or not 0 < size <= MAX_MP4):
+                raise ValueError()
+
+            if shutil.disk_usage(self.server.spool).free - 5_000_000_000 < size:
+                self.json(507, {"error": "insufficient_spool"})
+                return
+
+            remote = f"{self.server.intake.remote()}{OUTPUT_FOLDER}/{owner}/{job}_{name}"
+            with tempfile.TemporaryDirectory(prefix="output-", dir=self.server.spool) as temp:
+                target = Path(temp) / "output.mp4"
+                sha_seen = hashlib.sha256()
+                md5_seen = hashlib.md5(usedforsecurity=False)
+                remaining = size
+                with target.open("xb") as handle:
+                    while remaining:
+                        data = self.rfile.read(min(1024 * 1024, remaining))
+                        if not data:
+                            raise ValueError()
+                        handle.write(data)
+                        sha_seen.update(data)
+                        md5_seen.update(data)
+                        remaining -= len(data)
+                if (not hmac.compare_digest(sha_seen.hexdigest(), sha)
+                        or not hashlib.compare_digest(md5_seen.hexdigest(), md5)):
+                    self.json(422, {"error": "content_mismatch"})
+                    return
+
+                def stat():
+                    try:
+                        return json.loads(self.server.execute(
+                            ["rclone", "lsjson", remote, "--stat", "--hash"], 60))
+                    except Exception as exc:
+                        if getattr(exc, "category", "") == "remote_file_absent":
+                            return None
+                        raise
+
+                previous = stat()
+                if previous is None:
+                    self.server.execute(
+                        ["rclone", "copyto", str(target), remote, "--immutable"], 3600)
+                    previous = stat()
+                hashes = (previous or {}).get("Hashes") or {} if isinstance(previous, dict) else {}
+                actual_md5 = hashes.get("MD5") or hashes.get("md5") or ""
+                if (not isinstance(previous, dict)
+                        or previous.get("Size") != size
+                        or not isinstance(actual_md5, str)
+                        or not hashlib.compare_digest(actual_md5.lower(), md5)):
+                    self.json(409, {"error": "remote_conflict"})
+                    return
+                self.json(200, {"ok": True, "remote": remote, "size": size, "md5": md5})
+        except (ValueError, TypeError, KeyError):
+            self.json(400, {"error": "invalid_upload"})
+        except Exception as exc:
+            category = str(getattr(exc, "category", "")).lower()
+            code = ("authentication" if "authentication" in category else
+                    "output_denied" if "permission" in category else
+                    "configuration" if "configuration" in category else
+                    "unavailable")
+            self.json(502, {"error": code})
+
     def do_POST(self):
+        if self.path == "/v1/upload":
+            return self.upload_output()
         try:
             raw_length = self.headers.get_all("Content-Length", [])
             if len(raw_length) != 1 or self.headers.get("Transfer-Encoding"):
