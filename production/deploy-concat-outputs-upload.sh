@@ -6,7 +6,7 @@ umask 077
 [[ "$(id -u)" == 0 ]] || { echo "BLOCKED: sudo required"; exit 1; }
 
 BRIDGE_SHA="d9c422423aeecccf55ced49f63d7b8b35448840d"
-CONCAT_SHA="2555fe9a7c01d0915ca994587e0bcfc4531ad5b8"
+CONCAT_SHA="4c9353a93944d5ee7b47f8b5f934714395a10101"
 BRIDGE_REPO="dilshadshahsyed883-cmd/vps1-deploy-control"
 CONCAT_REPO="dilshadshahsyed883-cmd/concat-web"
 BRIDGE_FILE="/opt/concat-drive-bridge/concat_drive_bridge.py"
