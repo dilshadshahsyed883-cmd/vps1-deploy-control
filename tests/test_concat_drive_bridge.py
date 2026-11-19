@@ -55,6 +55,18 @@ class BridgeTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def wait_for_idle(self):
+        # Reading Content-Length bytes can finish before the server's finally
+        # block. Wait for both handler permits before checking spool cleanup.
+        acquired = 0
+        try:
+            for _ in range(2):
+                self.assertTrue(self.server.slots.acquire(timeout=2))
+                acquired += 1
+        finally:
+            for _ in range(acquired):
+                self.server.slots.release()
+
     def test_health_checks_canonical_remote(self):
         status, _, body = self.post("health", {"owner": OWNER})
         self.assertEqual(status, 200)
@@ -79,6 +91,7 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(data, b"zip")
         self.assertEqual(headers["X-Content-SHA256"], hashlib.sha256(data).hexdigest())
         self.assertEqual(headers["Content-Length"], "3")
+        self.wait_for_idle()
         self.assertEqual(list(Path(self.temp.name).glob("intake-*")), [])
 
     def test_untrusted_uid_cannot_invoke_intake(self):
