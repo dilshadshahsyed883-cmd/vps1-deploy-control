@@ -36,6 +36,15 @@ class UniversalSidebarContracts(unittest.TestCase):
                 self.assertEqual(html.count(style_version), 1)
                 self.assertIn('id="app-sidebar" class="sidebar"', html)
 
+    def test_rebuilt_mobile_sidebar_links_close_the_drawer(self):
+        # Shared navigation replaces legacy links after the original inline
+        # script runs. Direct per-link listeners are lost; delegation survives.
+        html = (SCENE / "templates/base.html").read_text(encoding="utf-8")
+        self.assertIn("sidebar.addEventListener('click', event => {", html)
+        self.assertIn("if (event.target.closest('nav a')) closeMenu();", html)
+        self.assertIn("sidebar.addEventListener('click',event=>{", html)
+        self.assertNotIn("sidebar.querySelectorAll('nav a').forEach", html)
+
     def test_existing_native_apps_use_the_same_shared_script(self):
         for path in NATIVE_PAGES:
             with self.subTest(path=path):
@@ -47,6 +56,7 @@ class UniversalSidebarContracts(unittest.TestCase):
             '["Dashboard", "/", "dashboard"]',
             '["Song Studio", "/song-studio/", "song"]',
             '["Experiment Studio", "/experiment-studio/", "experiment"]',
+            '["Concat Studio", "/concat-studio/", "concat"]',
             '["Voice Studio", "/voice-studio/app#vps1-production", "voice"]',
         )
         for marker in links:
@@ -74,7 +84,9 @@ class UniversalSidebarContracts(unittest.TestCase):
         self.assertNotIn('href="/experiment-studio/auto-script/"', template)
         self.assertNotIn('href="/scene-builder/">Video Studio</a>', template)
         self.assertIn('href="/local-upload-manager/app?embedded=1&amp;tab=dashboard"', template)
-        self.assertIn('href="/cloud-render/"', template)
+        self.assertIn('href="/concat-studio/concat/"', template)
+        self.assertIn('href="/concat-studio/concat-uploader/"', template)
+        self.assertIn('aria-label="Concat Studio"', template)
         self.assertIn("page in ['experiment_studio','auto_script','local_upload_manager'", template)
         self.assertEqual(template.count('aria-label="Experiment Studio"'), 1)
         routes = (SCENE / "app.py").read_text(encoding="utf-8")
@@ -128,14 +140,14 @@ class UniversalSidebarContracts(unittest.TestCase):
 
     def test_library_uses_native_experiment_shell_with_hidden_nav_items(self):
         source = SHELL_JS.read_text(encoding="utf-8")
-        self.assertIn('["acs", "voice", "uploader", "stream", "library", "song", "song-uploader", "short-uploader", "copyright-uploader"]', source)
+        self.assertIn('["acs", "voice", "uploader", "stream", "library", "song", "song-uploader", "short-uploader", "copyright-uploader", "concat-uploader"]', source)
         self.assertIn('app === "library"', source)
         self.assertIn('experiment-studio|self-media-library', source)
         self.assertIn('["acs", "uploader", "stream", "library"].includes(app)', source)
         visible_nav = source.split("const EXPERIMENT_NAV =", 1)[1].split("]);", 1)[0]
-        for label in ("Antidetect Browser", "Upload Studio", "Concat", "HeyGen Studio", "Voice Clone", "Imagen"):
+        for label in ("Antidetect Browser", "Upload Studio", "HeyGen Studio", "Voice Clone", "Imagen"):
             self.assertIn(f'["{label}",', visible_nav)
-        for label in ("Auto Script", "Self Media Library", "Video Studio"):
+        for label in ("Auto Script", "Self Media Library", "Video Studio", "Concat"):
             self.assertNotIn(f'["{label}",', visible_nav)
         self.assertIn("const createExperimentTabs =", source)
         self.assertIn("attachInnerTabs(tabs)", source)

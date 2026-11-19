@@ -798,6 +798,7 @@ async def authentication(request: Request, call_next):
     if studio and not studio_access_allows(account, studio):
         return Response(status_code=403, content="Studio access not granted")
     if (request.url.path.rstrip("/") == "/cloud-render" or
+            request.url.path.rstrip("/") == "/concat-studio/concat" or
             request.url.path.startswith("/api/cloud-render/")) and not account.get("is_admin"):
         return Response(status_code=403, content="Administrator access required")
     # HeyGen is an owner-scoped Studio: the active session checked above is
@@ -820,6 +821,19 @@ app.add_middleware(
 
 from cloud_render import register_cloud_render
 CLOUD_RENDER = register_cloud_render(app, templates, DATA_DIR, require_admin, require_login)
+
+# Presentation-only aliases. Cloud Render remains the single backend and
+# its admin-only owner guard remains intact until Agent 4 isolates all assets.
+@app.get("/concat-studio/")
+def concat_studio_home(request: Request):
+    require_login(request)
+    return RedirectResponse("/concat-studio/concat/", status_code=303)
+
+@app.get("/concat-studio/concat/")
+def concat_studio_concat(request: Request):
+    require_login(request)
+    require_admin(request)
+    return RedirectResponse("/cloud-render/", status_code=303)
 
 from heygen_studio import register_heygen_studio
 HEYGEN_STUDIO = register_heygen_studio(app, templates, DATA_DIR, require_login, require_login)
