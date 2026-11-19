@@ -5,11 +5,12 @@ on:
     paths:
       - 'production/concat_drive_bridge.py'
       - 'production/concat-drive-bridge.service'
+      - 'production/deploy-concat-outputs-upload.sh'
       - 'tests/test_concat_drive_bridge.py'
       - '.github/workflows/concat-drive-bridge-ci.yml'
   push:
     branches: [feature/shared-drive-bridge]
-    paths: ['production/concat_drive_bridge.py', 'production/concat-drive-bridge.service', 'production/deploy-concat-drive-bridge-issue16.sh', 'tests/test_concat_drive_bridge.py', '.github/workflows/concat-drive-bridge-ci.yml']
+    paths: ['production/concat_drive_bridge.py', 'production/concat-drive-bridge.service', 'production/deploy-concat-drive-bridge-issue16.sh', 'production/deploy-concat-outputs-upload.sh', 'tests/test_concat_drive_bridge.py', '.github/workflows/concat-drive-bridge-ci.yml']
 permissions:
   contents: read
 jobs:
@@ -28,3 +29,4 @@ jobs:
           python -m unittest discover -s tests -p 'test_concat_drive_bridge.py' -v
           python -m py_compile production/concat_drive_bridge.py
           bash -n production/deploy-concat-drive-bridge-issue16.sh
+          bash -n production/deploy-concat-outputs-upload.sh
