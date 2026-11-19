@@ -77,6 +77,25 @@ def _health(timeout: float = 50) -> dict:
     raise RuntimeError("Scene candidate health did not recover")
 
 
+def _make_staged_directories_traversable(target: Path) -> None:
+    """Allow the non-root Scene worker to import manifest-verified release code.
+
+    Stage creation runs as root and can inherit umask 077. File modes are
+    explicitly set to 0644, but parent directories would otherwise be 0700.
+    Only directories inside this Scene-owned release are adjusted; existing
+    project, worker state, private environments, and service units are not.
+    """
+    if target.is_symlink() or not target.is_dir():
+        raise RuntimeError("invalid Scene release directory")
+    for root, directories, files in os.walk(target, followlinks=False):
+        folder = Path(root)
+        if folder.is_symlink() or any(
+            (folder / name).is_symlink() for name in directories + files
+        ):
+            raise RuntimeError("symlink in immutable Scene candidate source")
+        folder.chmod(0o755)
+
+
 def _stage(revision: str) -> Path:
     from rebuild.fresh_vps import sources
     from production.runtime import atomic_json
@@ -105,6 +124,7 @@ def _stage(revision: str) -> Path:
         for name, digest in manifest["files"].items():
             if hashlib.sha256((target / name).read_bytes()).hexdigest() != digest:
                 raise RuntimeError("Scene candidate immutable source drift")
+        _make_staged_directories_traversable(target)
         return target
     target.mkdir(parents=True)
     try:
@@ -114,6 +134,7 @@ def _stage(revision: str) -> Path:
             path.write_bytes(content)
             path.chmod(0o644)
         atomic_json(manifest_path, manifest, 0o644)
+        _make_staged_directories_traversable(target)
     except BaseException:
         shutil.rmtree(target, ignore_errors=True)
         raise
