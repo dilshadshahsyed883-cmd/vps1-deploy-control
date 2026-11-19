@@ -1,0 +1,64 @@
+name: Short Maker Desktop - Windows EXE
+
+on:
+  pull_request:
+    paths:
+      - 'desktop/short-maker/**'
+      - '.github/workflows/vps1-short-maker-desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Offline tests and FFmpeg smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install FFmpeg and Tk
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg python3-tk
+      - name: Compile Python
+        run: python -m compileall -q desktop/short-maker
+      - name: Test short generator
+        run: python -m unittest discover -s desktop/short-maker/tests -v
+
+  windows:
+    name: Windows x64 standalone EXE
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Install PyInstaller and FFmpeg
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pyinstaller==6.16.0
+          choco install ffmpeg -y --no-progress
+      - name: Bundle real FFmpeg and FFprobe binaries
+        shell: pwsh
+        run: |
+          $root = 'C:\ProgramData\chocolatey\lib\ffmpeg'
+          $ffmpeg = Get-ChildItem $root -Filter ffmpeg.exe -Recurse -ErrorAction Stop | Where-Object { $_.DirectoryName -match '\\bin$' } | Select-Object -First 1
+          $ffprobe = Get-ChildItem $root -Filter ffprobe.exe -Recurse -ErrorAction Stop | Where-Object { $_.DirectoryName -match '\\bin$' } | Select-Object -First 1
+          if (-not $ffmpeg -or -not $ffprobe) { throw 'Real FFmpeg binary path not found; refusing shim packaging' }
+          & $ffmpeg.FullName -hide_banner -version
+          python -m PyInstaller --clean --noconfirm --onefile --windowed --name ShortMaker --add-binary "$($ffmpeg.FullName);." --add-binary "$($ffprobe.FullName);." desktop/short-maker/short_maker.py
+          if (-not (Test-Path dist/ShortMaker.exe)) { throw 'EXE missing' }
+          Compress-Archive -Path dist/ShortMaker.exe,desktop/short-maker/README.md -DestinationPath dist/ShortMaker-Windows-x64.zip -Force
+          Get-FileHash dist/ShortMaker-Windows-x64.zip -Algorithm SHA256 | Format-List | Out-File dist/SHA256.txt
+      - name: Upload Windows deliverable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShortMaker-Windows-x64
+          path: |
+            dist/ShortMaker-Windows-x64.zip
+            dist/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
