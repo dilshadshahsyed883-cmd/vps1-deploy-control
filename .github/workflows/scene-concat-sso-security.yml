@@ -5,6 +5,8 @@ on:
       - 'apps/scene-builder/part01/app.py'
       - 'apps/scene-builder/part01/concat_sso_issuer.py'
       - 'tests/test_concat_sso_issuer.py'
+      - 'production/scene_sso_only_release.py'
+      - 'tests/test_scene_sso_only_release.py'
       - '.github/workflows/scene-concat-sso-security.yml'
   workflow_dispatch:
 permissions:
@@ -26,3 +28,7 @@ jobs:
         run: |
           python -m py_compile apps/scene-builder/part01/concat_sso_issuer.py
           python -m py_compile apps/scene-builder/part01/app.py
+      - name: SSO-only guarded release contract (no VPS)
+        run: |
+          python -m unittest tests.test_scene_sso_only_release -v
+          python -m py_compile production/scene_sso_only_release.py
