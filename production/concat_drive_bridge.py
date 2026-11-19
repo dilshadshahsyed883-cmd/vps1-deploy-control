@@ -159,8 +159,13 @@ class Handler(BaseHTTPRequestHandler):
                         sha_seen.update(data)
                         md5_seen.update(data)
                         remaining -= len(data)
+                with target.open("rb") as check:
+                    header = check.read(12)
+                if len(header) < 12 or header[4:8] != b"ftyp":
+                    self.json(422, {"error": "invalid_mp4"})
+                    return
                 if (not hmac.compare_digest(sha_seen.hexdigest(), sha)
-                        or not hashlib.compare_digest(md5_seen.hexdigest(), md5)):
+                        or not hmac.compare_digest(md5_seen.hexdigest(), md5)):
                     self.json(422, {"error": "content_mismatch"})
                     return
 
@@ -183,7 +188,7 @@ class Handler(BaseHTTPRequestHandler):
                 if (not isinstance(previous, dict)
                         or previous.get("Size") != size
                         or not isinstance(actual_md5, str)
-                        or not hashlib.compare_digest(actual_md5.lower(), md5)):
+                        or not hmac.compare_digest(actual_md5.lower(), md5)):
                     self.json(409, {"error": "remote_conflict"})
                     return
                 self.json(200, {"ok": True, "remote": remote, "size": size, "md5": md5})
