@@ -27,6 +27,30 @@ class CopyrightStudioContract(unittest.TestCase):
             with self.subTest(path=path):
                 ast.parse(path.read_text(), filename=str(path))
 
+    def test_copyright_verified_cleanup_systemd_write_scope(self):
+        from production.runtime import DATA, service_unit
+
+        merger_root = DATA / "video-merger" / "video-merger"
+        handoff = str(merger_root / "copyright_handoff")
+        retained = str(merger_root / "verified_outputs")
+        copyright_unit = service_unit("copyright-uploader", "test-revision")
+        self.assertIn("ProtectSystem=strict", copyright_unit)
+        rw_line = next(line for line in copyright_unit.splitlines()
+                       if line.startswith("ReadWritePaths="))
+        writable = set(rw_line.partition("=")[2].split())
+        self.assertIn(str(DATA / "copyright-uploader"), writable)
+        self.assertIn(handoff, writable)
+        self.assertIn(retained, writable)
+        self.assertNotIn(str(merger_root), writable)
+        # The cross-app paths must never leak to other service sandboxes.
+        for app in ("video-merger", "local-upload-manager", "short-maker"):
+            with self.subTest(app=app):
+                other = service_unit(app, "test-revision")
+                other_rw = next(line for line in other.splitlines()
+                                if line.startswith("ReadWritePaths="))
+                self.assertNotIn(handoff, other_rw)
+                self.assertNotIn(retained, other_rw)
+
     def test_jinja_manual_tabs_and_forms(self):
         from jinja2 import Environment
         template = (COPY / "templates/app.html").read_text()
