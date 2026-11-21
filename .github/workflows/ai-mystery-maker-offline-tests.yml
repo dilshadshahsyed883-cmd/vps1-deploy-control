@@ -1,0 +1,24 @@
+name: ai-mystery-maker-offline-tests
+on:
+  pull_request:
+    paths:
+      - 'pilot/ai_mystery_maker.py'
+      - 'pilot/AI_MYSTERY_MAKER_README.md'
+      - 'pilot/ai_mystery_config.example.json'
+      - 'tests/test_ai_mystery_maker.py'
+      - '.github/workflows/ai-mystery-maker-offline-tests.yml'
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Offline integration mocks
+        run: python3 -m unittest discover -s tests -p 'test_ai_mystery_maker.py' -v
+      - name: Compile prototype
+        run: python3 -m py_compile pilot/ai_mystery_maker.py
