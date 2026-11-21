@@ -1,6 +1,6 @@
 # VPS_1 — GitHub deployment control
 
-This repository contains the GitHub-controlled source, build and release framework for VPS_1. Repository metadata showed **private visibility on 21 November 2026**. Visibility does not replace secret hygiene, scoped deployment permissions or app-specific release gates. Source and CI results alone do not establish live production health.
+This repository contains the GitHub-controlled source, build and release framework for VPS_1. Repository visibility can change; verify its current setting in GitHub. Visibility does not replace secret hygiene, scoped deployment permissions or app-specific release gates. Source and CI results alone do not establish live production health.
 
 The dated audits below are historical context. Verify current branch rules, release gates and live app evidence before a runtime change; this documentation update does not authorize a deployment.
 
