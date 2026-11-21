@@ -2,7 +2,7 @@
   "repository": "dilshadshahsyed883-cmd/vps1-deploy-control",
   "reviewed_at": "2026-11-21",
   "reviewed_main_sha": "a3dae52409c3d7a956cd37cfaf91139bdd078e68",
-  "status": "proposed; no remote branches deleted",
+  "status": "completed; approved 99 remote branch refs deleted and verified absent",
   "total_branches_reviewed": 423,
   "open_prs_reviewed": 18,
   "candidate_count": 99,
@@ -533,5 +533,35 @@
     "Recheck main ancestry and current open PR heads before deletion.",
     "Skip changed, protected, newly referenced or newly active branches.",
     "Delete branch refs only; preserve commits reachable from main, release tags, data and VPS runtime."
-  ]
+  ],
+  "execution_result": {
+    "deleted": 99,
+    "remaining_branch_count": 324,
+    "all_approved_refs_absent": true,
+    "main_unchanged": true,
+    "referenced_branch_preserved": true,
+    "maintenance_branches_preserved": true,
+    "open_pr_numbers_preserved": [
+      782,
+      781,
+      774,
+      771,
+      770,
+      769,
+      768,
+      764,
+      753,
+      732,
+      726,
+      722,
+      708,
+      707,
+      706,
+      705,
+      703,
+      698
+    ],
+    "vps_runtime_changed": false,
+    "release_tags_changed": false
+  }
 }
