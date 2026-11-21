@@ -24,9 +24,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-windows:
+  source-checks:
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.11
@@ -41,6 +41,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Concat regression tests failed" }
           python run_concat_studio.py --self-test
           if ($LASTEXITCODE -ne 0) { throw "Studio smoke failed" }
+
+  build-windows:
+    needs: source-checks
+    if: github.event_name != 'pull_request'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Install Windows desktop packaging dependencies
         shell: pwsh
         run: |
@@ -88,4 +100,4 @@ jobs:
             official/SHA256SUMS
             cloud_render/concat/studio/README.md
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
