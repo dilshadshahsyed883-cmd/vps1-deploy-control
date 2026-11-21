@@ -197,3 +197,30 @@ original Concat-Test-GPU.zip and media unchanged.
 ## Approved CUDA + NVENC GPU-only plan (2026-11-04)
 
 See [CUDA_GPU_ONLY_RENDER_PLAN.md](CUDA_GPU_ONLY_RENDER_PLAN.md) for the approved video-frame GPU-only architecture, unsupported optional-effect auto-skip with structured logs, no CPU visual fallback, 2-job parallel candidate, and validation/release gates. This is an approved plan only; the CUDA worker, full effect implementations and real Concat project acceptance are still pending.
+
+## CUDA/NVENC candidate — opt-in first real-project path (2026-11-04)
+
+Implementation PR: [CUDA worker candidate #703](https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/pull/703).
+Approved policy: [CUDA_GPU_ONLY_RENDER_PLAN.md](CUDA_GPU_ONLY_RENDER_PLAN.md).
+
+**Status: development candidate; NOT Salad hardware-accepted, NOT production.** Keep the current production image untouched until actual GPU acceptance, output parity and recovery checks pass.
+
+The same HTTP worker and Windows desktop gateway now support an explicitly selected `CONCAT_RENDER_BACKEND=cuda_nvenc` in the *candidate image*. Existing default remains `native`, with no automatic CPU/GPU fallback. Docker installs Ubuntu FFmpeg separately from the native Concat CLI's pinned libav dependencies, and subprocesses isolate the respective library paths.
+
+First-project supported subset:
+
+- Native `concat.json` (version 1), active timeline, sequential, gap-free image clips, 1080p/30 recommended, fixed scale between 1.0 and 1.8 and at most two **linear** position-keyframe endpoints. Per-frame compositing, scaling, pan and H.264 encoding use CUDA filters + NVENC.
+- Up to one unmodified AAC audio clip, starting at zero and spanning the visual timeline. Audio is **stream-copied** without CPU re-encoding. Project with other/multiple audio treatment fails rather than silently losing audio.
+- Images are decoded and YUV-normalized **once on CPU during ingestion** before hardware frame processing; this disclosed limitation does *not* yet satisfy an absolute CPU-free imagery pipeline. All **render-time per-frame visual filters** are CUDA-only. Additional GPU-native still image intake must be accepted before claiming stricter 100% GPU content preparation.
+- Unsupported optional color effects, fixed rotations, and safe nonoverlapping transitions: skip with structured `GPU_EFFECT_UNSUPPORTED` logs and unchanged clip timing. Essential unsupported text, shape, video clips, multi-layer composition, unsafe timeline overlaps, incompatible aspect and missing inputs: fail with explicit reason; never silently render as CPU.
+- Worker status includes `backend`, `skipped_effects` and `event_log`; authenticated `GET /api/jobs/{id}/logs` provides structured events. Logs persist after acknowledged VPS delivery.
+- GPU readiness uses selected backend: CUDA/NVENC checks `nvidia-smi`, FFmpeg filter availability and `h264_nvenc`; it no longer depends on NVIDIA Vulkan. A successful readiness report does **not** replace a successful hardware render.
+- First acceptance is **one** real 30-second project. Do not enable 2-job parallelism (current pool is still `max_workers=1`) until first output's video and audio verification succeeds.
+
+**Operator acceptance sequence (candidate only):** build candidate image from reviewed GitHub PR, configure a *test* Salad container with `CONCAT_RENDER_BACKEND=cuda_nvenc` and existing auth secrets, verify `/health/ready` and authenticated `/api/diagnostics/gpu`, use the Windows Studio Render Queue to submit a supported real `concat.json`, then confirm `/api/jobs/{id}` and logs, MP4 audio/video streams, exact duration, visual motion, and verified VPS receiver. Keep original media and production untouched. Only after this may more editing features and 2-parallel GPU workers be enabled.
+
+**Salad one-command hardware acceptance** (after starting the published *test* CUDA candidate image):
+
+    python3 -m cloud_render.concat.gpu.hardware_smoke
+
+This creates two synthetic Concat still-image scenes, linear GPU pan, 30-second AAC audio, and an intentionally unsupported optional effect. It verifies MP4 duration, video/audio codecs and structured skip logs, then prints the output and log paths. This tests the image and engine, **not yet the Windows-to-Salad real personal project upload**. No credentials are printed or stored by the smoke test.

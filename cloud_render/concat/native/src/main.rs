@@ -649,12 +649,13 @@ fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
         ui.on_test_gpu(move ||if let Some(app)=weak.upgrade(){
             let url=app.get_gpu_url().to_string();
             let sender=send.clone();
-            info(&app,"Checking Salad GPU and Vulkan drivers...");
+            info(&app,"Checking Salad backend: CUDA/NVENC or native Vulkan...");
             thread::spawn(move||{
                 let result=gpu::gateway_saved(&url).and_then(|g|g.check_nvidia());
                 let report=match result{
-                    Ok(d)=>format!("GPU ready\nNVIDIA Vulkan: {}\nNVIDIA Compute: {}\nAdapters: {}",
-                         d["nvidia_vulkan_visible"],d["nvidia_compute_visible"],d["vulkan_adapters"]),
+                    Ok(d)=>format!("GPU ready\nSelected backend: {}\nCUDA + NVENC: {}\nNVIDIA Vulkan: {}\nMissing: {}",
+                         d["selected_backend"],d["cuda_nvenc_ready"],
+                         d["nvidia_vulkan_visible"],d["missing"]),
                     Err(e)=>format!("GPU not ready: {e}")
                 };
                 let _=sender.send(Event::Gpu(report));
@@ -669,10 +670,18 @@ fn main()->Result<(),Box<dyn std::error::Error + Send + Sync>>{
             let sender=send.clone();
             let remote=q.get(&id).ok().and_then(|j|j.remote_id).unwrap_or(id);
             thread::spawn(move||{
-                let result=gpu::gateway_saved(&url).and_then(|g|g.status(&remote));
-                let msg=match result{Ok(v)=>format!("Salad GPU job {remote}:\n{}",
-                    serde_json::to_string_pretty(&v).unwrap_or_default()),
-                    Err(e)=>format!("GPU job check unavailable: {e}")};
+                let result=gpu::gateway_saved(&url).and_then(|g|{
+                    let state=g.status(&remote)?;
+                    let logs=g.logs(&remote).unwrap_or_else(|e|
+                        serde_json::json!({"error":format!("Logs unavailable: {e}")}));
+                    Ok((state,logs))
+                });
+                let msg=match result{
+                    Ok((state,logs))=>format!("Salad GPU job {remote}:\n{}\n\nEffect logs:\n{}",
+                        serde_json::to_string_pretty(&state).unwrap_or_default(),
+                        serde_json::to_string_pretty(&logs).unwrap_or_default()),
+                    Err(e)=>format!("GPU job check unavailable: {e}")
+                };
                 let _=sender.send(Event::Gpu(msg));
             });
         });

@@ -25,6 +25,7 @@ from pathlib import Path
 from cloud_render.concat.project_bundle import restore
 from cloud_render.concat.gpu.resumable import ResumableUpload, UploadError
 from cloud_render.concat.gpu.vulkan_probe import probe as probe_vulkan
+from cloud_render.concat.gpu.cuda_backend import probe_cuda, render as render_cuda
 
 IDS = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 DIGESTS = re.compile(r"^[a-f0-9]{64}$")
@@ -57,7 +58,7 @@ def check_id(job: str) -> str:
 class RenderWorker:
     def __init__(self, root: Path, *, binary: Path, token: str,
                  receiver: str = "", receiver_token: str = "", renderer=None,
-                 deliver=None):
+                 deliver=None, backend="native"):
         if len(token) < 32:
             raise RuntimeError("RENDERER_API_TOKEN must have at least 32 characters")
         self.root = root.resolve()
@@ -65,7 +66,10 @@ class RenderWorker:
         self.token = token
         self.receiver = receiver.rstrip("/")
         self.receiver_token = receiver_token
-        self.renderer = renderer or self._native_render
+        if backend not in ("native", "cuda_nvenc"):
+            raise RuntimeError("CONCAT_RENDER_BACKEND must be native or cuda_nvenc")
+        self.backend = backend
+        self.renderer = renderer or (self._cuda_render if backend == "cuda_nvenc" else self._native_render)
         self.deliver = deliver or self._deliver
         self.lock = threading.RLock()
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="concat-export")
@@ -115,6 +119,8 @@ class RenderWorker:
             self._save(job, item)
 
     def ready(self) -> bool:
+        if self.backend == "cuda_nvenc":
+            return self.state.is_dir() and probe_cuda()["cuda_nvenc_ready"]
         return self.binary.is_file() and os.access(self.binary, os.X_OK) and self.state.is_dir()
 
     def accept(self, job: str, stream, length: int, checksum: str) -> dict:
@@ -168,15 +174,23 @@ class RenderWorker:
             self._change(job, state="running")
             extracted = directory / "project"
             restore(directory / "project.zip", extracted)
-            self.renderer(extracted, output)
+            report = self.renderer(extracted, output)
+            if isinstance(report, dict) and report.get("event_log"):
+                source_log = directory / report["event_log"]
+                if source_log.is_file() and not source_log.is_symlink():
+                    target_log = self.state / (job + ".events.jsonl")
+                    shutil.copyfile(source_log, target_log)
             if not output.is_file() or output.is_symlink() or output.stat().st_size < 12:
                 raise RuntimeError("Concat did not produce an MP4")
             with output.open("rb") as handle:
                 header = handle.read(12)
             if header[4:8] != MP4_SIGNATURE:
                 raise RuntimeError("Concat output MP4 signature invalid")
+            details = report if isinstance(report, dict) else {}
             self._change(job, state="rendered", output_size=output.stat().st_size,
-                         output_sha256=digest_file(output))
+                         output_sha256=digest_file(output), backend=self.backend,
+                         skipped_effects=details.get("skipped_effects", 0),
+                         event_log=details.get("event_log", ""))
             if self.receiver:
                 self._change(job, state="delivering")
                 self.deliver(job, output)
@@ -187,8 +201,19 @@ class RenderWorker:
         except Exception as exc:
             # Source bundle and output, if any, remain for diagnosis/retry.
             prior = self.status(job)
+            if self.backend == "cuda_nvenc":
+                log = self.state / (job + ".events.jsonl")
+                failure = {"timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                           "job_id": job, "renderer": "cuda-nvenc-candidate-v1",
+                           "decision": "failed", "reason_code": "CUDA_RENDER_FAILED",
+                           "message": str(exc)[:500]}
+                with log.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(failure) + "\n")
             self._change(job, state="delivery_failed" if prior["state"] == "delivering" else "failed",
                          error=str(exc)[:500])
+
+    def _cuda_render(self, project: Path, output: Path):
+        return render_cuda(project, output, job_id=output.stem)
 
     def _native_render(self, project: Path, output: Path):
         # Upstream API preserves all project effects/settings and audio.
@@ -319,10 +344,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True})
         if action == "GET" and path == "/health/ready":
             ok = self.worker.ready()
-            return self._json(200 if ok else 503, {"ok": ok, "engine": "concat-cli"})
+            return self._json(200 if ok else 503, {"ok": ok,
+                "engine": self.worker.backend, "renderer_version": "cuda-nvenc-candidate-v1"
+                if self.worker.backend == "cuda_nvenc" else "concat-cli-v0.2.8"})
         self._authorize()
         if action == "GET" and path == "/api/diagnostics/gpu":
-            return self._json(200, probe_vulkan())
+            result = probe_vulkan()
+            result.update(probe_cuda())
+            result["selected_backend"] = self.worker.backend
+            return self._json(200, result)
         upload = re.fullmatch(
             r"/api/uploads/([A-Za-z0-9_-]{1,80})(?:/chunks/([0-9]{1,4})|/(complete))?", path)
         if upload:
@@ -359,12 +389,24 @@ class Handler(BaseHTTPRequestHandler):
             if action == "POST" and complete is not None:
                 return self._json(202, self.worker.spool.complete(job))
             raise WorkerError(405, "Method not allowed")
-        m = re.fullmatch(r"/api/jobs/([A-Za-z0-9_-]{1,80})(/output|/retry-delivery)?", path)
+        m = re.fullmatch(r"/api/jobs/([A-Za-z0-9_-]{1,80})(/output|/retry-delivery|/logs)?", path)
         if not m:
             raise WorkerError(404, "Unknown route")
         job, suffix = m.groups()
         if action == "GET" and not suffix:
             return self._json(200, self.worker.status(job))
+        if action == "GET" and suffix == "/logs":
+            self.worker.status(job)  # no logs for unknown job
+            file = self.worker.state / (job + ".events.jsonl")
+            if not file.is_file():
+                file = self.worker.inputs / job / "engine-events.jsonl"
+            if not file.is_file() or file.is_symlink():
+                return self._json(200, {"job": job, "events": []})
+            # Bounded, authenticated structured events (no secrets).
+            if file.stat().st_size > 2 * 1024 * 1024:
+                raise WorkerError(413, "Render log too large")
+            lines = [json.loads(line) for line in file.read_text().splitlines() if line]
+            return self._json(200, {"job": job, "events": lines})
         if action == "POST" and not suffix:
             if self.headers.get("Content-Type", "").split(";")[0] != "application/zip":
                 raise WorkerError(415, "Upload must be application/zip")
@@ -424,7 +466,8 @@ def main():
                           binary=Path(os.getenv("CONCAT_BINARY", "/usr/local/bin/concat-cli")),
                           token=token,
                           receiver=os.getenv("CLOUD_RENDER_VPS_BASE_URL", ""),
-                          receiver_token=os.getenv("RENDER_OUTPUT_TOKEN", ""))
+                          receiver_token=os.getenv("RENDER_OUTPUT_TOKEN", ""),
+                          backend=os.getenv("CONCAT_RENDER_BACKEND", "native"))
     port = int(os.getenv("PORT", "8080"))
     server = SaladDualStackHTTPServer(("::", port), Handler)
     server.worker = worker
