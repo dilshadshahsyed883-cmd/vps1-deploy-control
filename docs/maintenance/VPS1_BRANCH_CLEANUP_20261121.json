@@ -1,0 +1,567 @@
+{
+  "repository": "dilshadshahsyed883-cmd/vps1-deploy-control",
+  "reviewed_at": "2026-11-21",
+  "reviewed_main_sha": "a3dae52409c3d7a956cd37cfaf91139bdd078e68",
+  "status": "completed; approved 99 remote branch refs deleted and verified absent",
+  "total_branches_reviewed": 423,
+  "open_prs_reviewed": 18,
+  "candidate_count": 99,
+  "delete_candidates": [
+    {
+      "branch": "architecture/persistent-shell-v2",
+      "expected_head_sha": "27a5c7d2e37b8f609e8870e5c41f97a7ce51b502",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "architecture/shell-v2-app-batch",
+      "expected_head_sha": "14178e933565e773a896c702952812c7e6ace4db",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "audit/haseeb1-audio-foreign-active-proof-20261031",
+      "expected_head_sha": "f716ba8810ca28f05cf16700ed6d6c50f682615f",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "audit/haseeb1-audio-handoff-evidence-20261031",
+      "expected_head_sha": "be97d419d4a0c43738496bd87e376f257f298a8c",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "audit/shortstudio-readonly-live-20261102",
+      "expected_head_sha": "a9da9c685a64dc47cd03ee19f9421d5adcef2ba6",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "audit/song-audio-8152-failure-readonly-20261102",
+      "expected_head_sha": "6700d7a5e18611e98cd5d1e56e35d005dfbcaa4c",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "audit/voice-v11-live-readonly-acceptance-20261103",
+      "expected_head_sha": "a57c1a7abce6e40f7018d85342aa34d5f3331183",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "chore/cw002-production-release-trigger-20261020-v2",
+      "expected_head_sha": "49756f8336b46f515d65d1caf464c32fb4e179f8",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "chore/cw002-production-release-trigger-20261020-v3",
+      "expected_head_sha": "12c634bd3156e94d340c4b7e689c619fd4687663",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "chore/cw002-production-release-trigger-20261020-v4",
+      "expected_head_sha": "8d09722a5c28af4b2f4d428e0ccad208c5b8c845",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "chore/cw002-production-release-trigger-20261020-v5",
+      "expected_head_sha": "359422cb63a7a1ca68bde8acbbb1b7afa11b482d",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "chore/cw002-production-release-trigger-20261020-v6",
+      "expected_head_sha": "b2337709d2ac34cdaf702cf5768519d0fe8fcc16",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "deploy/storage-dashboard-scoped-20261019",
+      "expected_head_sha": "5dcb24c9aebd0334dcd543643072d9b8a7e4c79d",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "diagnostic/voice-missing-module-evidence-20261102",
+      "expected_head_sha": "f2297bbd3c4373d22b2776098229fe5debf9b508",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "diagnostic/voice-song-failed-rollback-20261102",
+      "expected_head_sha": "c65194eff48420e95954fded29caffdbf8c8ef4b",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "diagnostics/storage-gc-kthread-proof-20261031",
+      "expected_head_sha": "c73e9acf84f05e5b14a6136b0ee048f02f452477",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "docs/vps1-step3-release-readiness-20261016",
+      "expected_head_sha": "a83afb3d62db45ae5dfd3fa1b4c58114aab862f5",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/antidetect-proxy-privacy-10sessions-20261025",
+      "expected_head_sha": "82ac5f72c6aea1a498a5c0e5aa7f5e0192c9e3c4",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/cloud-render-media-copy-link-20261118",
+      "expected_head_sha": "75ac794771af1ebcfeea5757116aa71f920a17ab",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/cw-002-cw-003-cw-006-completion",
+      "expected_head_sha": "83ed0139209332f9b57fa02b9e00d3c2bac8a3be",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/experiment-auto-script-subtab-20261025",
+      "expected_head_sha": "7b4159ea80cbda7692540b60c98c0f8e6e3aadf4",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/haseeb1-uploader-owner-transfer-20261031",
+      "expected_head_sha": "2b5bc9d832848e78596b837b2bf6c0b22f5f683f",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/scene-sml-five-parallel-downloads-20261026",
+      "expected_head_sha": "18d15570196f42345bd9f3230ac8fd5948d29446",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/sml-library-preview-subtabs-20261026",
+      "expected_head_sha": "1bc4a9a85a57528cb60f7ca570bbd870da8c9a96",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/sml-manual-person-collections-20261026",
+      "expected_head_sha": "76082a4908f5f5db00bc545d8fef4946c750c859",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/song-studio-folder-workflow-20261030",
+      "expected_head_sha": "0820e99288990e92dfc8390b74115ebd5f8c6ddc",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/song-studio-navigation-20261029-rebased",
+      "expected_head_sha": "0a25a893eb5301254c9e0b1a77f8e636c93f971e",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/song-uploader-engine2-only-20261029",
+      "expected_head_sha": "4c5443e66f6a9ce3730cc8af43d9b1642f70148e",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/video-merger-library-frozen-v1-20261102",
+      "expected_head_sha": "dd8e1a0640ddd5478ced299ded7e0962588049dd",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/voice-one-time-real-audio-qa-20261020",
+      "expected_head_sha": "14b339e51b096880ff44cdf39e7ff3df880c7ed7",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feat/vps1-auto-script-production-online-20261025",
+      "expected_head_sha": "f3d03fef263eb4d9620736c605086ef4f23669b8",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/edge-license-server-20261027",
+      "expected_head_sha": "942b125ea8871969b1cb0772b88c616a800574db",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/experiment-antidetect-browser-engine-20261020",
+      "expected_head_sha": "5f787fd0d3988fb11dabe3d849bee64ee3781605",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/experiment-studio-antidetect-tab-20261020",
+      "expected_head_sha": "88c3f2c7fb1e2eeb9d83f9583a4e3cdeb406c38c",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/experiment-studio-self-media-library-tab-20261020",
+      "expected_head_sha": "8ace159b8ee312349aa9f074eed56fae48ebc498",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/heygen-studio-p1-bridge-20261115",
+      "expected_head_sha": "6b6382a10e51ade333895ca269d6426e9ec93913",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/imagen-admin-batches-vps-20261116",
+      "expected_head_sha": "c649c1b97963b78dec5e05a30e681ca56bd451b5",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/lum-isolated-engine2-shorts-app-20261019",
+      "expected_head_sha": "91544d0550801c80f5398354cd099987f575bb9a",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/lum-three-modes-stream-shell-20261019",
+      "expected_head_sha": "fe169c41e35507483413bb44e85e9f8a62eb4046",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/lum-unified-mode-coordinator-20261019",
+      "expected_head_sha": "8ec023133477a2f83e902353da68cafc60f2e8eb",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/queued-deploy-control-20261015",
+      "expected_head_sha": "e5c0dddb02bbaed476651d7420a6e3e3da7d4590",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/sml-2-ingest-metadata-20261020",
+      "expected_head_sha": "f0d1e11fddbaaaebe1539eb2f13b46c888f47b74",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/sml-2-quality-dedup-20261020",
+      "expected_head_sha": "5e42224ffe95366cd62586c1c78931c28b9580c3",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/sml-clean-library-20261026",
+      "expected_head_sha": "ef5e92daacf5e12ae3ab70e27b90e4e930bfd7fa",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/song-voice-audio-backend-separation-20261102",
+      "expected_head_sha": "f2d9ae0c9f7f624453bf8295b83bedda8037c37a",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/tab3-app-compatibility-guards-20261016",
+      "expected_head_sha": "0630134b11b5c577635537d9ad32b716595e86c6",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/three-studio-user-data-isolation-20261031",
+      "expected_head_sha": "6b73e6ab13f22d27acf00abde062ed2ff935e00b",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/unified-website-shell-20261015",
+      "expected_head_sha": "c00149f2e08433dcbfe50cf64040d260c49c5049",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/voice-studio-sidebar-multiuser-20261102",
+      "expected_head_sha": "7175661b45e8ab2746e11ff8856dda3bca9fd966",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/vps1-final-rollback-hardening-20261015",
+      "expected_head_sha": "edcfca1b2a4258baee7c003c9265c72ecae52ef3",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/vps1-guarded-release-transaction-20261015",
+      "expected_head_sha": "8a1c149526a62355067a307b2c9f95639bab7b62",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "feature/vps1-infrastructure-contracts-20261015",
+      "expected_head_sha": "6562ba017a223665fedeff652ae893c4f3d09e64",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "fix-voice-gateway-reload-20261018",
+      "expected_head_sha": "eefc15ebff75aef690dc00aa49141ffc9f6cb836",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "fix/haseeb1-songmaker-release-diagnostics-20261031",
+      "expected_head_sha": "718c3c13f935793ba2fece733ba718f8b3970f03",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "fix/heygen-gateway-voice-readonly-20261115",
+      "expected_head_sha": "24dd3b74905bb99209b782a4ae17fd05b0aff3e2",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "fix/short-maker-drain-credentials-scope-20261030",
+      "expected_head_sha": "f0bd1aa130f969b68f6b1663c4cd3e0955fc67c4",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "fix/short-maker-pc-image-file-picker-20261030",
+      "expected_head_sha": "f4876047f89b7e0c321cc3a7fa5c8a748d6ea4fd",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "fix/shortstudio-isolated-live-verify-20261030",
+      "expected_head_sha": "7e7b0e8e9df0ec93257b044f82e4d4258bf69de4",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "fix/voice-audio-current-template-compat-20261020",
+      "expected_head_sha": "cbea2063c7dcfec899760378e29d79ce70f9411c",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "fix/vps1-storage-legacy-candidate-metrics-20261019",
+      "expected_head_sha": "aa1a7591afbca5b17838053377e400d50048c49d",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "infra/tailscale-fresh-vps-ip-hostkey-20261018",
+      "expected_head_sha": "b295a39befb9c1db136c6ccdb623539757adc929",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "integration/phase1-tab1-control-20261015",
+      "expected_head_sha": "fee006f0e9e8d5991117e5abac3db3ef6a2882bd",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "integration/source-of-truth-contract-20261015",
+      "expected_head_sha": "175c1539c10a693d94e546d43a95fac383d6cd9f",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "integration/voice-coordinated-20261020-v2",
+      "expected_head_sha": "4feaddbdd6c955c1984d72ffe3d9acb7fc306652",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "integration/vps1-github-control-20261015",
+      "expected_head_sha": "07265bbfa6a16fdbed5be82ab64dddc5e0f5cade",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "integration/vps1-migration-security-tab1-20261016",
+      "expected_head_sha": "af9ecddb5b1f2f212b4369ed95e8646c15c0f3ef",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "integration/vps1-source-queue-nginx-20261015",
+      "expected_head_sha": "96ef737dc387d9b750552dd3e6b7eda392e1edde",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "migration/fresh-vps-11groups-20261015",
+      "expected_head_sha": "9fd6b1348f09c641cc86981634a5c0f0a5089340",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "migration/haseeb1-audio-downloader-ownership-20261031",
+      "expected_head_sha": "5f7bb017610a798ddb5cf254daf65632f31ed6b2",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "migration/haseeb1-songmaker-ownership-20261031",
+      "expected_head_sha": "92f99dc5be54dd8b020eff81e57c885f31639aa4",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "production/scene-public-https-20261018",
+      "expected_head_sha": "7a43572c721b1c8cb180a3bf236ea56ea7b1692c",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/activate-scene-sml-five-worker-20261026",
+      "expected_head_sha": "6a7b2dda03dc3433de86c24badd57846f2fb25a8",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/audio-preferences-backend-20261030",
+      "expected_head_sha": "cbb483f5c7497b581198ab2631298f112962bc5b",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/cw009-lum-engine-health-20261020",
+      "expected_head_sha": "0ab10b1bba2968cbcc3634e458c8246a7df8f5a9",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/short-maker-pr611-guarded-20261101",
+      "expected_head_sha": "1d7e41b48778ec3bc112dc79e079e3491c16a0f2",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/song-audio-8152-cutover-20261102",
+      "expected_head_sha": "e9588095945aa18766f56ad5d05b70cd281a5528",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/storage-gc-telemetry-20261020",
+      "expected_head_sha": "67ad05e2d9b460c899624ed2470b95151e211a53",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/storage-ui-telemetry-20261020",
+      "expected_head_sha": "f17e20ebbb6e70b9e140619a0edb8a53a5ea82bb",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/voice-8143-recovery-20261102",
+      "expected_head_sha": "40740c30a7963c580a896b113da99811f49d4948",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/voice-readonly-acceptance-20261103",
+      "expected_head_sha": "cd978da6b37a703ffd987d35ea59231be06f2770",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/voice-scene-sso-gateway-20261103",
+      "expected_head_sha": "2fb9d61b02d56891a67cd6b25d8c91a769339bc5",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "release/voice-v11-ss0-isolation-activation-20261103",
+      "expected_head_sha": "cc7a4444622a3e60535ace96065c88616a00f44e",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/one-time-ssh-proof-fresh-vps-20261018",
+      "expected_head_sha": "f697d6816c0f741a0c63abe895e8cb5d1472a8e2",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/restore-hard-disabled-ssh-proof-20261018",
+      "expected_head_sha": "22d4869cd36edb8db2753e6329b33dfa4fbcc9ad",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/restore-ssh-hard-disable-after-recheck-20261018",
+      "expected_head_sha": "3524f7c87fd4da29460e0d3e76476bf7b024f2cc",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/ssh-verify-after-tailnet-rule-update-20261018",
+      "expected_head_sha": "de33b1f665f97170f342e9c781d1eb0172002281",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/vps1-env-secret-isolation-20261016",
+      "expected_head_sha": "0fb73147b8cab4812167e215645657f997960a43",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/vps1-main-ssh-proof-once-20261016",
+      "expected_head_sha": "7da28ea0b0047d77b1a1cd63695434f61fed529f",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/vps1-one-time-ssh-proof-prep-20261016",
+      "expected_head_sha": "e0ebba44191aebc86cdb462b055afd1b6b5db898",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/vps1-pr28-pr29-integration-20261016",
+      "expected_head_sha": "2c8126a61e299989463beb23048e7ef2d854ebf0",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/vps1-public-data-gate-20261016",
+      "expected_head_sha": "d0340339cd1c52ca8a64e65ab340275ea383417b",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/vps1-redacted-history-scan-20261016",
+      "expected_head_sha": "00741fdac2020ce40fc98141e06e94161e019437",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/vps1-restore-ssh-proof-fail-closed-20261016",
+      "expected_head_sha": "99c24fdcb5000c245c7e5115255667bcd2d73566",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/vps1-single-readonly-ssh-activation-20261016",
+      "expected_head_sha": "d1b975166c8dac5fabf0491c581f5b630c0317dc",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "security/vps1-ssh-execution-hold-20261016",
+      "expected_head_sha": "d3369b27d78002371dfb7103b7e56c47248fcdc3",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "ui/scene-compact-all-tabs",
+      "expected_head_sha": "3784ec9cf5444ca12e5da450ca51ae3733d5238d",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "ui/sml-input-compact-20261021",
+      "expected_head_sha": "cd70d1df6691b77e7ec059fedc00ce9a767241af",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "ui/studio-compact-three-apps",
+      "expected_head_sha": "a7ccbc55429092ab8c0fc4cd522fed7d1c770834",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    },
+    {
+      "branch": "voice-studio-public-https-20261018",
+      "expected_head_sha": "ea92470f31da4183b36c064df0aacd09107310cb",
+      "reason": "Head commit is an ancestor of reviewed main; no open PR uses this head and no active workflow/script branch reference was found."
+    }
+  ],
+  "preserve": {
+    "default_branch": "main",
+    "workflow_referenced_merged_branch": "feature/durable-deployment-engine-20261015",
+    "open_pr_numbers": [
+      782,
+      781,
+      774,
+      771,
+      770,
+      769,
+      768,
+      764,
+      753,
+      732,
+      726,
+      722,
+      708,
+      707,
+      706,
+      705,
+      703,
+      698
+    ],
+    "other_unmerged_branches": "Preserve pending explicit supersession review"
+  },
+  "execution_preconditions": [
+    "Re-read each remote head and require exact expected SHA.",
+    "Recheck main ancestry and current open PR heads before deletion.",
+    "Skip changed, protected, newly referenced or newly active branches.",
+    "Delete branch refs only; preserve commits reachable from main, release tags, data and VPS runtime."
+  ],
+  "execution_result": {
+    "deleted": 99,
+    "remaining_branch_count": 324,
+    "all_approved_refs_absent": true,
+    "main_unchanged": true,
+    "referenced_branch_preserved": true,
+    "maintenance_branches_preserved": true,
+    "open_pr_numbers_preserved": [
+      782,
+      781,
+      774,
+      771,
+      770,
+      769,
+      768,
+      764,
+      753,
+      732,
+      726,
+      722,
+      708,
+      707,
+      706,
+      705,
+      703,
+      698
+    ],
+    "vps_runtime_changed": false,
+    "release_tags_changed": false
+  }
+}
