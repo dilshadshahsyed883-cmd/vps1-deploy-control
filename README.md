@@ -1,8 +1,10 @@
-# VPS_1 — GitHub deployment control (PUBLIC, production gated)
+# VPS_1 — GitHub deployment control
 
-This repository is **PUBLIC** and contains the GitHub-controlled source, build and release framework for VPS_1. It is **not** evidence of a working production deployment, and **no GitHub-to-VPS production cutover is authorized**.
+This repository contains the GitHub-controlled source, build and release framework for VPS_1. Repository metadata showed **private visibility on 21 November 2026**. Visibility does not replace secret hygiene, scoped deployment permissions or app-specific release gates. Source and CI results alone do not establish live production health.
 
-**Current reviewed candidate (16 October 2026):** [migration PR #7](https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/pull/7) targets protected `main` but is **not merged**. [Security gate #21](https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/issues/21) remains open. Earlier pilot-specific reports are historical; do not infer current Tailscale, SSH, port or deployment identity state from them.
+The dated audits below are historical context. Verify current branch rules, release gates and live app evidence before a runtime change; this documentation update does not authorize a deployment.
+
+**Historical reviewed candidate (16 October 2026):** [migration PR #7](https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/pull/7) targets protected `main` but is **not merged**. [Security gate #21](https://github.com/dilshadshahsyed883-cmd/vps1-deploy-control/issues/21) remains open. Earlier pilot-specific reports are historical; do not infer current Tailscale, SSH, port or deployment identity state from them.
 
 ## What is implemented (GitHub / CI only)
 
@@ -52,4 +54,8 @@ bash -n scripts/preflight_readonly.sh
 
 These commands are for a **local checkout / CI**, not instructions to execute against the VPS. They do not replace provider access review, authenticated live app smoke tests, independent data backups or rollback verification.
 
-Never commit secrets, tokens, `.env` files, production user media, databases, archives or live agent credentials to this PUBLIC repository.
+Never commit secrets, tokens, `.env` files, production user media, databases, archives or live agent credentials to this repository.
+
+## Repository maintenance
+
+See the [repository guide](docs/REPOSITORY_GUIDE.md) for source ownership, validation and release/storage policy, and [CONTRIBUTING.md](CONTRIBUTING.md) for changes and review.
