@@ -2,7 +2,7 @@
 
 Source review: 21 November 2026. This is a source map, not a claim about live deployment health.
 
-Private deployment-control repository. Source and offline CI evidence are separate from verified live runtime state.
+Deployment-control repository. Source and offline CI evidence are separate from verified live runtime state.
 
 ## Source map
 
