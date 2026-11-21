@@ -84,16 +84,19 @@ class ResumableUpload:
             if path.is_file() and not path.is_symlink() and path.stat().st_size == expected:
                 found.append(index)
         return {"job": job, "state": "uploading", "size": m["size"],
-                "sha256": m["sha256"], "chunk_size": CHUNK_BYTES,
+                "sha256": m["sha256"], "render_mode": m.get("render_mode", "native"),
+                "chunk_size": CHUNK_BYTES,
                 "total_chunks": parts, "uploaded": found, "remaining": parts - len(found)}
 
     def status(self, job):
         with self.worker.lock:
             return self._status(job)
 
-    def begin(self, job, size, sha256):
+    def begin(self, job, size, sha256, render_mode="cuda-stage1"):
         with self.worker.lock:
             self._id(job)
+            if render_mode != "cuda-stage1":
+                raise UploadError(400, "Native Vulkan engine retired; use cuda-stage1")
             if type(size) is not int or not 0 < size <= MAX_BYTES:
                 raise UploadError(400, "Invalid ZIP size")
             if not isinstance(sha256, str) or not SHA.fullmatch(sha256):
@@ -103,7 +106,8 @@ class ResumableUpload:
             root = self._directory(job)
             if root.exists():
                 manifest = self._manifest(job)
-                if manifest["size"] != size or manifest["sha256"] != sha256:
+                if (manifest["size"] != size or manifest["sha256"] != sha256 or
+                    manifest.get("render_mode", "native") != render_mode):
                     raise UploadError(409, "Existing upload does not match the requested ZIP")
                 return self._status(job)
             unfinished = sum(path.is_dir() for path in self.uploads.iterdir())
@@ -114,7 +118,8 @@ class ResumableUpload:
             if in_flight >= MAX_JOBS:
                 raise UploadError(429, "Render queue is full")
             root.mkdir(mode=0o700)
-            manifest = {"size": size, "sha256": sha256, "created": int(time.time())}
+            manifest = {"size": size, "sha256": sha256, "created": int(time.time()),
+                        "render_mode": render_mode}
             (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             return self._status(job)
 
@@ -165,6 +170,10 @@ class ResumableUpload:
             if self.worker._path(job).exists():
                 return self.worker.status(job)  # Idempotent after lost HTTP response
             status = self._status(job)
+            # Do not silently convert an old native upload to CUDA. Keep
+            # its original verified parts and require a new CUDA job ID.
+            if status["render_mode"] != "cuda-stage1":
+                raise UploadError(409, "Legacy native Vulkan upload retired; existing chunks preserved")
             if status["remaining"]:
                 raise UploadError(409, f"Missing {status['remaining']} ZIP chunks")
             root = self._directory(job)
@@ -194,7 +203,8 @@ class ResumableUpload:
                 os.replace(staged, target)
                 self.worker._save(job, {"job": job, "state": "queued",
                      "size": length, "sha256": status["sha256"],
-                     "created": int(time.time()), "error": ""})
+                     "created": int(time.time()), "error": "",
+                     "render_mode": status.get("render_mode", "native")})
                 self.worker.pool.submit(self.worker._process, job)
             except BaseException:
                 if not self.worker._path(job).exists():
